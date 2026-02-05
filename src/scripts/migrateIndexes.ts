@@ -30,7 +30,7 @@ export async function migrateRoomCommentIndexes() {
       await RoomComment.createIndexes();
       console.log('[migrate] Ensured RoomComment indexes');
     } catch (e) {
-      console.warn('[migrate] createIndexes failed:', e.message || e);
+      console.warn('[migrate] createIndexes failed:', e instanceof Error ? e.message : e);
     }
   } catch (e) {
     console.error('[migrate] Error migrating RoomComment indexes:', e);
