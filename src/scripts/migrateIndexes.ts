@@ -19,7 +19,7 @@ export async function migrateRoomCommentIndexes() {
         try {
           await coll.dropIndex(idx.name);
           console.log(`[migrate] Dropped old TTL/index on createdAt: ${idx.name}`);
-        } catch (e) {
+        } catch (e: any) {
           console.warn(`[migrate] Failed to drop index ${idx.name}:`, e.message || e);
         }
       }
@@ -30,7 +30,7 @@ export async function migrateRoomCommentIndexes() {
       await RoomComment.createIndexes();
       console.log('[migrate] Ensured RoomComment indexes');
     } catch (e) {
-      console.warn('[migrate] createIndexes failed:', e instanceof Error ? e.message : e);
+      console.warn('[migrate] createIndexes failed:', e instanceof Error ? e.message : String(e));
     }
   } catch (e) {
     console.error('[migrate] Error migrating RoomComment indexes:', e);
