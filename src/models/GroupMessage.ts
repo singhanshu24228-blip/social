@@ -7,6 +7,8 @@ const GroupMessageSchema = new Schema(
     message: { type: String },
     mediaUrl: { type: String },
     mediaType: { type: String },
+    voiceUrl: { type: String },
+    voiceGender: { type: String, enum: ['male', 'female'] },
     status: { type: String, enum: ['sent', 'delivered', 'seen'], default: 'sent' },
   },
   { timestamps: true }

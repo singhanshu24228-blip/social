@@ -3,22 +3,17 @@ import Group from '../models/Group.js';
 import User from '../models/User.js';
 import { AuthRequest } from '../middleware/auth.js';
 
-// Helper: derive area and pincode using Nominatim reverse geocoding (OpenStreetMap)
-// Uses a small in-memory cache to avoid excessive requests; set `NOMINATIM_USER_AGENT` env var to comply with usage policy.
-// Falls back to a deterministic pseudo pincode when postcode is not available.
-// Temporarily disabled cache to force fresh API calls for testing
-// const nominatimCache: Map<string, { area: string; postcode: string; ts: number }> = new Map();
-
 export async function deriveAreaAndPincode(lat: number, lng: number): Promise<{ areaCode: string; pincode: string }> {
   try {
     // First, get area from Nominatim
     const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&addressdetails=1`;
-    const nomRes = await (globalThis as any).fetch(nominatimUrl, {
-      headers: {
-        'User-Agent': process.env.NOMINATIM_USER_AGENT || 'contact-local-backend/0.1',
-        'Accept-Language': 'en',
-      },
-    });
+    const nomRes = await fetch(nominatimUrl, {
+  headers: {
+    'User-Agent': process.env.NOMINATIM_USER_AGENT || 'contact-local-backend/0.1',
+    'Accept-Language': 'en',
+  },
+});
+
 
     let area = '';
     if (nomRes.ok) {
@@ -28,8 +23,11 @@ export async function deriveAreaAndPincode(lat: number, lng: number): Promise<{ 
     }
 
     // Get postcode from GeoNames
-    const geonamesUrl = `http://api.geonames.org/findNearbyPostalCodesJSON?lat=${lat}&lng=${lng}&username=demo&maxRows=1`;
-    const geoRes = await (globalThis as any).fetch(geonamesUrl);
+    // const geonamesUrl = `http://api.geonames.org/findNearbyPostalCodesJSON?lat=${lat}&lng=${lng}&username=demo&maxRows=1`;
+    const geonamesUrl =
+  `http://api.geonames.org/findNearbyPostalCodesJSON?lat=${lat}&lng=${lng}&username=${process.env.GEONAMES_USERNAME}&maxRows=1`;
+
+    const geoRes = await fetch(geonamesUrl);
 
     let postcode = '';
     if (geoRes.ok) {
@@ -180,7 +178,6 @@ export const joinGroup = async (req: AuthRequest, res: Response) => {
       },
     ]).catch(() => []);
 
-    // Simpler: compute distance using haversine here between user and group center
     function haversine([lng1, lat1]: [number, number], [lng2, lat2]: [number, number]) {
       const R = 6371e3; // meters
       const toRad = (v: number) => (v * Math.PI) / 180;
@@ -211,8 +208,8 @@ export const joinGroup = async (req: AuthRequest, res: Response) => {
 export const getGroupMessages = async (req: AuthRequest, res: Response) => {
   try {
     const { groupId } = req.params;
-    const GroupMessage = (await import('../models/GroupMessage')).default;
-    const msgs = await GroupMessage.find({ groupId }).sort({ createdAt: 1 }).populate('senderId', 'username name').lean();
+    const GroupMessage = (await import('../models/GroupMessage.js')).default;
+    const msgs = await GroupMessage.find({ groupId }).sort({ createdAt: 1 }).allowDiskUse(true).populate('senderId', 'username name').lean();
 
     // Normalize sender field
     const out = msgs.map((m: any) => ({

@@ -11,20 +11,39 @@ export let ioInstance: Server | null = null;
 
 export function initSocket(server: HttpServer) {
   const io = new Server(server, {
-    cors: { origin: process.env.CLIENT_URL || '*' },
+    cors: {
+      origin: process.env.CLIENT_URL || '*',
+      methods: ["GET", "POST"],
+      credentials: true,
+    },
   });
 
   ioInstance = io;
 
   io.use(async (socket: Socket, next) => {
     try {
-      // Accept token via Authorization header (for Node clients) or handshake auth (browsers)
+      // Accept token via Authorization header, handshake auth, or cookies
       let token: string | undefined;
       const headerAuth = socket.handshake.headers.authorization;
       if (headerAuth && headerAuth.startsWith('Bearer ')) {
         token = headerAuth.replace('Bearer ', '');
       } else if ((socket.handshake as any).auth && (socket.handshake as any).auth.token) {
         token = (socket.handshake as any).auth.token;
+      } else if (socket.handshake.headers.cookie) {
+        // parse cookie string to find access_token
+        try {
+          // use simple parsing to avoid extra dependency
+          const cookieStr = socket.handshake.headers.cookie as string;
+          const parts = cookieStr.split(';').map((p) => p.trim());
+          for (const p of parts) {
+            if (p.startsWith('access_token=')) {
+              token = decodeURIComponent(p.substring('access_token='.length));
+              break;
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
       }
       if (!token) return next(new Error('Authentication error'));
       const payload: any = jwt.verify(token, getJwtSecret());
@@ -75,15 +94,40 @@ export function initSocket(server: HttpServer) {
     // Handle sending message to group
     socket.on('group:message', async (payload: any) => {
       try {
-        const { groupId, message, mediaUrl, mediaType, localId } = payload || {};
+        const { groupId, message, mediaUrl, mediaType, localId, isVoice, voiceGender } = payload || {};
         if (!groupId || (!message && !mediaUrl)) return;
         const group = await Group.findById(groupId).select('members');
         if (!group) return;
         const isMember = group.members.some((m: any) => String(m) === String(userId));
         if (!isMember) return;
 
+        let voiceUrl = null;
+
+        // If voice message, convert text to speech
+        if (isVoice && message && voiceGender) {
+          try {
+            const { textToSpeech } = await import('../utils/yourVoiceAI.js');
+            voiceUrl = await textToSpeech({
+              text: message,
+              gender: voiceGender,
+              language: 'en',
+            });
+          } catch (voiceErr) {
+            console.error('Voice conversion error:', voiceErr);
+            // Continue without voice if conversion fails
+          }
+        }
+
         // Save message
-        const gm = new GroupMessage({ groupId, senderId: userId, message, mediaUrl, mediaType });
+        const gm = new GroupMessage({
+          groupId,
+          senderId: userId,
+          message,
+          mediaUrl,
+          mediaType,
+          voiceUrl,
+          ...(isVoice && { voiceGender })
+        });
         await gm.save();
 
         // fetch sender info
@@ -115,11 +159,36 @@ export function initSocket(server: HttpServer) {
     // Handle private messaging
     socket.on('private:message', async (payload: any) => {
       try {
-        const { toUserId, message, mediaUrl, mediaType, localId } = payload || {};
+        const { toUserId, message, mediaUrl, mediaType, localId, isVoice, voiceGender } = payload || {};
         if (!toUserId || (!message && !mediaUrl)) return;
 
+        let voiceUrl = null;
+
+        // If voice message, convert text to speech
+        if (isVoice && message && voiceGender) {
+          try {
+            const { textToSpeech } = await import('../utils/yourVoiceAI.js');
+            voiceUrl = await textToSpeech({
+              text: message,
+              gender: voiceGender,
+              language: 'en',
+            });
+          } catch (voiceErr) {
+            console.error('Voice conversion error:', voiceErr);
+            // Continue without voice if conversion fails
+          }
+        }
+
         // save message
-        const pm = new PrivateMessage({ senderId: userId, receiverId: toUserId, message, mediaUrl, mediaType });
+        const pm = new PrivateMessage({
+          senderId: userId,
+          receiverId: toUserId,
+          message,
+          mediaUrl,
+          mediaType,
+          voiceUrl,
+          ...(isVoice && { voiceGender })
+        });
         await pm.save();
 
         // fetch sender info
@@ -133,16 +202,30 @@ export function initSocket(server: HttpServer) {
           message: pm.message,
           mediaUrl: pm.mediaUrl,
           mediaType: pm.mediaType,
+          voiceUrl: pm.voiceUrl,
+          voiceGender: pm.voiceGender,
           status: pm.status,
           createdAt: pm.createdAt,
           localId: localId || undefined,
         };
 
-        // emit to receiver
+        // Create notification for receiver
+        const { createNotification } = await import('../controllers/notificationController.js');
+        await createNotification(
+          toUserId,
+          userId,
+          'message',
+          voiceUrl ? `[Voice message] ${message}` : (message || '[Media message]'),
+          undefined,
+          undefined,
+          String(pm._id)
+        );
+
+        // emit to receiver with 'private:message' event
         io.to(`user:${toUserId}`).emit('private:message', out);
-        // emit to sender's sockets (other tabs) so they see the same message
-        io.to(`user:${userId}`).emit('private:message', out);
-        // ack the current socket so optimistic UI can be reconciled
+        // emit to sender's OTHER sockets (other tabs) with 'private:message' so they see the message
+        socket.broadcast.to(`user:${userId}`).emit('private:message', out);
+        // ack the current socket with 'private:message:sent' so optimistic UI can be reconciled
         socket.emit('private:message:sent', out);
       } catch (err) {
         console.error('private:message failed', err);
@@ -170,7 +253,7 @@ export function initSocket(server: HttpServer) {
     socket.on('typing', (payload) => {
       // payload: { toUserId }
       if (payload?.toUserId) {
-        io.to(`user:${payload.toUserId}`).emit('typing', { from: userId });
+        io.to(`user:${payload.toUserId}`).emit('typing', { from: userId, userId });
       }
     });
 

@@ -1,19 +1,20 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import Status from '../models/Status.js';
 import User from '../models/User.js';
 import { ioInstance } from '../socket/index.js';
 import { AuthRequest } from '../middleware/auth.js';
 
+
 export const createStatus = async (req: AuthRequest, res: Response) => {
   try {
-    const { content, mediaUrl } = req.body;
+    const { content, mediaUrl, songUrl } = req.body;
     const userId = req.user._id;
 
-    if (!content && !mediaUrl) return res.status(400).json({ message: 'Nothing to post' });
+    if (!content && !mediaUrl && !songUrl) return res.status(400).json({ message: 'Nothing to post' });
 
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-    const status = new Status({ userId, content, mediaUrl, expiresAt });
+    const status = new Status({ userId, content, mediaUrl, songUrl, expiresAt });
     await status.save();
 
     // Notify nearby users (within 2KM)
@@ -40,6 +41,7 @@ export const createStatus = async (req: AuthRequest, res: Response) => {
             userId,
             content,
             mediaUrl,
+            songUrl,
             expiresAt,
             createdAt: status.createdAt,
           });
@@ -102,7 +104,12 @@ export const listNearbyStatuses = async (req: AuthRequest, res: Response) => {
     // Include the current user's ID to show their own statuses
     ids.push(req.user._id);
 
-    const statuses = await Status.find({ userId: { $in: ids } }).sort({ createdAt: -1 }).lean();
+    //  const statuses = await Status.find({ userId: { $in: ids } }).sort({ createdAt: -1 }).limit(50).allowDiskUse(true).lean();
+    const statuses = await Status.find({ userId: { $in: ids } })
+      .select("userId content mediaUrl songUrl createdAt expiresAt")
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
 
     res.json({ statuses });
   } catch (err) {

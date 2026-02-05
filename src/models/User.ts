@@ -12,6 +12,9 @@ export interface IUser extends Document {
     coordinates: [number, number];
   };
   isOnline: boolean;
+  isInNightMode?: boolean;
+  nightModeEnteredAt?: Date;
+  lastNightModeExit?: Date;
   comparePassword(candidate: string): Promise<boolean>;
 }
 
@@ -32,6 +35,9 @@ const UserSchema = new Schema<IUser>(
       coordinates: { type: [Number], required: true },
     },
     isOnline: { type: Boolean, default: false },
+    isInNightMode: { type: Boolean, default: false },
+    nightModeEnteredAt: { type: Date },
+    lastNightModeExit: { type: Date },
   },
   { timestamps: true }
 );

@@ -18,37 +18,44 @@ export const updateLocation = async (req: AuthRequest, res: Response) => {
     user.location = { type: 'Point', coordinates: coords } as any;
     await user.save();
     try {
-      const { ensureGroupsForLocation } = require('./groupController');
-      await ensureGroupsForLocation(coords, user._id.toString());
-    } catch (err) {
-      console.warn('Group creation failed', err);
-    }
-    try {
-      const { ioInstance } = require('../socket');
-      const groups = await (await import('../models/Group')).default.find({ members: userId }).lean();
-      const userCoords = coords;
-      const haversine = ([lng1, lat1]: [number, number], [lng2, lat2]: [number, number]) => {
-        const R = 6371e3; // meters
-        const toRad = (v: number) => (v * Math.PI) / 180;
-        const dLat = toRad(lat2 - lat1);
-        const dLon = toRad(lng2 - lng1);
-        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return R * c;
-      };
+  const { ensureGroupsForLocation } = await import('./groupController.js');
+  await ensureGroupsForLocation(coords, user._id.toString());
+} catch (err) {
+  console.warn('Group creation failed', err);
+}
 
-      for (const g of groups) {
-        const distance = haversine(userCoords as [number, number], g.location.coordinates as [number, number]);
-        const allowed = g.distanceRange === '1KM' ? distance <= 1000 : distance <= 2000;
-        if (!allowed) {
-          await (await import('../models/Group')).default.findByIdAndUpdate(g._id, { $pull: { members: user._id } });
-          ioInstance?.to(`group:${g._id}`).emit('group:member:left', { groupId: g._id, userId: user._id });
-          ioInstance?.to(`user:${user._id}`).emit('group:left', { groupId: g._id });
-        }
-      }
-    } catch (err) {
-      console.warn('Failed to adjust group membership after location update', err);
+try {
+  const { ioInstance } = await import('../socket/index.js');
+  const Group = (await import('../models/Group.js')).default;
+
+  const groups = await Group.find({ members: userId }).lean();
+
+  const haversine = ([lng1, lat1]: [number, number], [lng2, lat2]: [number, number]) => {
+    const R = 6371e3;
+    const toRad = (v: number) => (v * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lng2 - lng1);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+      Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  };
+
+  for (const g of groups) {
+    const distance = haversine(coords, g.location.coordinates);
+    const allowed = g.distanceRange === '1KM' ? distance <= 1000 : distance <= 2000;
+
+    if (!allowed) {
+      await Group.findByIdAndUpdate(g._id, { $pull: { members: user._id } });
+      ioInstance?.to(`group:${g._id}`).emit('group:member:left', { groupId: g._id, userId: user._id });
+      ioInstance?.to(`user:${user._id}`).emit('group:left', { groupId: g._id });
     }
+  }
+} catch (err) {
+  console.warn('Failed to adjust group membership after location update', err);
+}
+
 
     res.json({ ok: true, location: user.location });
   } catch (err) {
@@ -118,6 +125,21 @@ export const findUsersByUsername = async (req: AuthRequest, res: Response) => {
     const users = await User.find({ _id: { $ne: userId }, username: regex }).select('_id username name isOnline').limit(20).lean();
 
     res.json({ users });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+export const getUserProfile = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ message: 'Missing user id' });
+
+    const user = await User.findById(id).select('_id username name isOnline createdAt').lean();
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    res.json({ user });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
