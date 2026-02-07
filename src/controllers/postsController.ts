@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import path from 'path';
-import Post from '../models/Post.js';
+import Post, { IPost } from '../models/Post.js';
 import User from '../models/User.js';
 import { fileURLToPath } from 'url';
 import { createNotification } from './notificationController.js';
@@ -100,8 +100,7 @@ export const createPost = async (req: Request, res: Response) => {
 
 export const getPosts = async (req: Request, res: Response) => {
   try {
-    // Filter out night posts from the daytime feed
-    // Night posts should NEVER be visible in the normal feed
+    
     const posts = await Post.find({ isNightPost: { $ne: true } })
       .populate('user', 'username name')
       .populate('comments.user', 'username name')
@@ -124,15 +123,12 @@ export const getPosts = async (req: Request, res: Response) => {
         score: calculateScore(postObj as any)
       };
     });
-
-    // Sort by score but also consider recency - newer posts should appear higher
-    // This ensures new posts aren't buried at the bottom
     postsWithScores.sort((a, b) => {
       const scoreA = (b.score || 0) - (a.score || 0);
       if (Math.abs(scoreA) > 0.1) {
         return scoreA;
       }
-      // If scores are similar, sort by recency
+      
       return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
     });
 
