@@ -8,8 +8,8 @@ export interface NightModeTimeInfo {
   currentMinute: number;
   message: string;
 }
-const NIGHT_ENTRY_START =22; // 10:00 PM
-const NIGHT_ENTRY_END_HOUR = 23; // 3:30 AM
+const NIGHT_ENTRY_START = 22; // 10:00 PM
+const NIGHT_ENTRY_END_HOUR = 3; // 3:30 AM
 const NIGHT_ENTRY_END_MINUTE = 30;
 const DAY_START = 5;
 const NIGHT_FULL_END = 5; 
@@ -31,16 +31,12 @@ export function isInNightEntryWindow(): boolean {
   const hour = now.getHours();
   const minute = now.getMinutes();
 
+  // 10 PM to 11:59 PM
   if (hour >= NIGHT_ENTRY_START) {
-    
     return true;
   }
-  if (hour < NIGHT_ENTRY_END_HOUR) {
-    
-    return true;
-  }
-  if (hour === NIGHT_ENTRY_END_HOUR && minute <= NIGHT_ENTRY_END_MINUTE) {
-   
+  // Midnight (hour 0) to 3:30 AM
+  if (hour < NIGHT_ENTRY_END_HOUR || (hour === NIGHT_ENTRY_END_HOUR && minute <= NIGHT_ENTRY_END_MINUTE)) {
     return true;
   }
   return false;

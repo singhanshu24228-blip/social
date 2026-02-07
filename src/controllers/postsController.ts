@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
-import multer, { Multer } from 'multer';
 import path from 'path';
 import Post from '../models/Post.js';
+import User from '../models/User.js';
 import { fileURLToPath } from 'url';
 import { createNotification } from './notificationController.js';
 import { calculateScore } from '../utils/yourVoiceAI.js';
@@ -10,106 +10,93 @@ import fs from 'fs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Configure multer for image uploads
-const storage = multer.diskStorage({
-  destination: (req: Request, file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) => {
-    const uploadsDir = path.join(__dirname, '../../uploads');
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
-    cb(null, uploadsDir);
-  },
-  filename: (req: Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
+export const createPost = async (req: Request, res: Response) => {
+  try {
+    const { content, anonymous } = req.body;
+    const userId = (req as any).user._id;
+    console.log('Backend createPost - req.body:', req.body);
+    console.log('Backend createPost - req.files:', (req as any).files);
 
-const upload = multer({ storage });
+    // Build absolute base URL from request so frontend receives fully-qualified secure URLs
+    const protocol = req.protocol;
+    const host = req.get('host');
+    const baseUrl = `${protocol}://${host}`;
 
-export const createPost = [
-  upload.fields([{ name: 'image' }, { name: 'song' }]),
-  async (req: Request, res: Response) => {
-    try {
-      const { content, anonymous } = req.body;
-      const userId = (req as any).user.id;
-      console.log('Backend createPost - req.body:', req.body);
-      console.log('Backend createPost - req.files:', (req as any).files);
-
-      // Build absolute base URL from request so frontend receives fully-qualified secure URLs
-      const protocol = req.protocol;
-      const host = req.get('host');
-      const baseUrl = `${protocol}://${host}`;
-
-      const imageUrl = (req as any).files?.image
-        ? `${baseUrl}/uploads/${(req as any).files.image[0].filename}`
-        : req.body?.imageUrl
-        ? (() => {
-            let s = req.body.imageUrl as string;
-            if (!s.startsWith('http')) {
-              if (!s.startsWith('/')) {
-                s = '/' + s;
-              }
-              return `${baseUrl}${s}`;
+    const imageUrl = (req as any).files?.image
+      ? `${baseUrl}/uploads/${(req as any).files.image[0].filename}`
+      : req.body?.imageUrl
+      ? (() => {
+          let s = req.body.imageUrl as string;
+          if (!s.startsWith('http')) {
+            if (!s.startsWith('/')) {
+              s = '/' + s;
             }
-            return s;
-          })()
-        : undefined;
-
-      // allow using an uploaded file or an existing song URL passed in the body
-      let songUrl: string | undefined;
-      if ((req as any).files?.song) {
-        songUrl = `${baseUrl}/uploads/${(req as any).files.song[0].filename}`;
-      } else if (req.body?.songUrl) {
-        let s = req.body.songUrl as string;
-        // If passed a relative or incomplete path, construct absolute URL
-        if (!s.startsWith('http')) {
-          // Starts with / (frontend path) or is just a filename — construct as absolute URL
-          if (!s.startsWith('/')) {
-            s = '/' + s;
+            return `${baseUrl}${s}`;
           }
-          songUrl = `${baseUrl}${s}`;
-        } else {
-          // Already a full HTTP(S) URL
-          songUrl = s;
+          return s;
+        })()
+      : undefined;
+
+    // allow using an uploaded file or an existing song URL passed in the body
+    let songUrl: string | undefined;
+    if ((req as any).files?.song) {
+      songUrl = `${baseUrl}/uploads/${(req as any).files.song[0].filename}`;
+    } else if (req.body?.songUrl) {
+      let s = req.body.songUrl as string;
+      // If passed a relative or incomplete path, construct absolute URL
+      if (!s.startsWith('http')) {
+        // Starts with / (frontend path) or is just a filename — construct as absolute URL
+        if (!s.startsWith('/')) {
+          s = '/' + s;
         }
+        songUrl = `${baseUrl}${s}`;
       } else {
-        songUrl = undefined;
+        // Already a full HTTP(S) URL
+        songUrl = s;
       }
-
-      console.log('Backend createPost - computed URLs:', { baseUrl, imageUrl, songUrl });
-
-      const anonFlag = (anonymous === 'true' || anonymous === true);
-      console.log('Backend createPost - saving with:', { content, imageUrl, songUrl, userId, anonymous: anonFlag });
-
-      const post = new Post({
-        user: userId,
-        content,
-        imageUrl,
-        songUrl,
-        anonymous: anonFlag,
-      });
-
-      await post.save();
-      await post.populate('user', 'username name');
-
-      const postObj: any = post.toObject();
-      if (post.reactions) {
-        postObj.reactions = Object.fromEntries(post.reactions.entries());
-      }
-      if (post.userReactions) {
-        postObj.userReactions = Object.fromEntries(post.userReactions.entries());
-      }
-
-      console.log('Backend createPost - saved post object:', postObj);
-
-      res.status(201).json(postObj);
-    } catch (error) {
-      console.error('Error creating post:', error);
-      res.status(500).json({ message: 'Server error' });
+    } else {
+      songUrl = undefined;
     }
+
+    console.log('Backend createPost - computed URLs:', { baseUrl, imageUrl, songUrl });
+
+    const anonFlag = (anonymous === 'true' || anonymous === true);
+    console.log('Backend createPost - saving with:', { content, imageUrl, songUrl, userId, anonymous: anonFlag });
+
+    // Fetch user to get username
+    const user = await User.findById(userId);
+    const username = user?.username || '';
+
+    const post = new Post({
+      user: userId,
+      username,
+      content,
+      imageUrl,
+      songUrl,
+      anonymous: anonFlag,
+    });
+
+    await post.save();
+    await post.populate('user', 'username name');
+
+    const postObj: any = post.toObject();
+    if (post.reactions) {
+      postObj.reactions = Object.fromEntries(post.reactions.entries());
+    }
+    if (post.userReactions) {
+      postObj.userReactions = Object.fromEntries(post.userReactions.entries());
+    }
+    // Add score to the response
+    postObj.score = calculateScore(postObj);
+
+    console.log('Backend createPost - saved post object:', postObj);
+
+    res.status(201).json(postObj);
+  } catch (error) {
+    console.error('Error creating post:', error);
+    res.status(500).json({ message: 'Server error' });
   }
-];
+};
 
 export const getPosts = async (req: Request, res: Response) => {
   try {
@@ -123,7 +110,7 @@ export const getPosts = async (req: Request, res: Response) => {
 
     // Calculate scores and sort by score (highest first)
     const postsWithScores = posts.map(post => {
-      const postObj = post.toObject();
+      const postObj = post.toObject() as IPost;
       // Convert Maps to plain objects for JSON response
       if (post.reactions) {
         (postObj as any).reactions = Object.fromEntries(post.reactions.entries());
@@ -138,7 +125,16 @@ export const getPosts = async (req: Request, res: Response) => {
       };
     });
 
-    postsWithScores.sort((a, b) => (b.score || 0) - (a.score || 0));
+    // Sort by score but also consider recency - newer posts should appear higher
+    // This ensures new posts aren't buried at the bottom
+    postsWithScores.sort((a, b) => {
+      const scoreA = (b.score || 0) - (a.score || 0);
+      if (Math.abs(scoreA) > 0.1) {
+        return scoreA;
+      }
+      // If scores are similar, sort by recency
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+    });
 
     res.json(postsWithScores);
   } catch (error) {

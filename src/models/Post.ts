@@ -2,6 +2,7 @@ import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IPost extends Document {
   user: mongoose.Types.ObjectId;
+  username?: string;
   content: string;
   imageUrl?: string;
   songUrl?: string;
@@ -15,11 +16,14 @@ export interface IPost extends Document {
     content: string;
     createdAt: Date;
   }[];
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const PostSchema = new Schema<IPost>(
   {
     user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    username: { type: String },
     content: { type: String, required: true },
     imageUrl: { type: String },
     songUrl: { type: String },

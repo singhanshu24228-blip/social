@@ -86,15 +86,18 @@ const uploadsStaticOptions: any = {
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
     } else {
-      // Use aggressive caching with immutable since files are named uniquely
-      // This is safe because each upload gets a unique timestamp-based filename
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      // Use conditional caching with ETag for mobile safety
+      // This allows browsers to validate cached files instead of blindly using them
+      // If file is unchanged, server returns 304 Not Modified without re-downloading
+      res.setHeader('Cache-Control', 'public, max-age=604800, must-revalidate');
       res.setHeader('Vary', 'Accept-Encoding');
     }
   },
   // Enable compression for better mobile performance
   dotfiles: 'deny',
-  redirect: false
+  redirect: false,
+  // Enable ETag for cache validation - critical for mobile reliability
+  etag: true
 };
 
 // If caching is disabled, also turn off ETag and Last-Modified handling to avoid 304 responses
