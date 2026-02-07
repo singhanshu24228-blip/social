@@ -6,6 +6,7 @@ import http from 'http';
 import cors from 'cors';
 import mongoose from 'mongoose';
 import path from 'path';
+import fs from 'fs';
 import cookieParser from 'cookie-parser';
 import { fileURLToPath } from 'url';
 import authRoutes from './routes/auth.js';
@@ -43,8 +44,10 @@ import postsRoutes from './routes/posts.js';
 import notificationsRoutes from './routes/notifications.js';
 import nightModeRoutes from './routes/nightMode.js';
 import uploadRoutes from './routes/upload.js';
+import debugRoutes from './routes/debug.js';
 
 app.use('/api/users', usersRoutes);
+app.use('/api/debug', debugRoutes);
 app.use('/api/groups', groupsRoutes);
 app.use('/api/chats', chatsRoutes);
 app.use('/api/status', statusRoutes);
@@ -53,8 +56,54 @@ app.use('/api/notifications', notificationsRoutes);
 app.use('/api/night-mode', nightModeRoutes);
 app.use('/api/upload', uploadRoutes);
 
-// Serve uploaded images
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// Log requests to uploads and serve uploaded images with proper cache control
+app.use('/uploads', (req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    console.log(`[uploads] ${req.method} ${req.originalUrl} ${res.statusCode} If-Modified-Since:${req.get('if-modified-since') || ''} took ${Date.now() - start}ms`);
+  });
+  next();
+});
+
+// Configure static serving for uploads with mobile-optimized cache headers
+const uploadsStaticOptions: any = {
+  setHeaders: (res: any, filePath: string) => {
+    // Add headers to prevent corruption and improve mobile caching
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    
+    // Check if file has valid size (avoid serving partially downloaded files)
+    try {
+      const stats = fs.statSync(filePath);
+      if (stats.size > 0) {
+        res.setHeader('Content-Length', stats.size.toString());
+      }
+    } catch (e) {
+      console.warn(`Could not stat file ${filePath}:`, e);
+    }
+
+    if (process.env.DISABLE_UPLOADS_CACHE === 'true') {
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    } else {
+      // Use aggressive caching with immutable since files are named uniquely
+      // This is safe because each upload gets a unique timestamp-based filename
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      res.setHeader('Vary', 'Accept-Encoding');
+    }
+  },
+  // Enable compression for better mobile performance
+  dotfiles: 'deny',
+  redirect: false
+};
+
+// If caching is disabled, also turn off ETag and Last-Modified handling to avoid 304 responses
+if (process.env.DISABLE_UPLOADS_CACHE === 'true') {
+  uploadsStaticOptions.etag = false;
+  uploadsStaticOptions.lastModified = false;
+}
+
+app.use('/uploads', express.static(path.join(__dirname, '../uploads'), uploadsStaticOptions));
 
 app.get('/health', (req, res) => res.json({ ok: true }));
 
@@ -89,6 +138,14 @@ async function start() {
     initSocket(server);
   } catch (err) {
     console.warn('Socket init skipped or failed', err);
+  }
+
+  // Ensure uploads directory exists so multer can write files on platforms where the directory
+  // is not checked into source (Render, Docker, etc.)
+  const uploadsDir = path.join(__dirname, '../uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+    console.log('Created uploads directory:', uploadsDir);
   }
 
   server.listen(PORT, () => console.log(`Server listening on ${PORT}`));

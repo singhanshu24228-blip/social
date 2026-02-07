@@ -8,8 +8,8 @@ export interface NightModeTimeInfo {
   currentMinute: number;
   message: string;
 }
-const NIGHT_ENTRY_START =21; // 10:00 PM
-const NIGHT_ENTRY_END_HOUR = 1; // 3:30 AM
+const NIGHT_ENTRY_START =22; // 10:00 PM
+const NIGHT_ENTRY_END_HOUR = 23; // 3:30 AM
 const NIGHT_ENTRY_END_MINUTE = 30;
 const DAY_START = 5;
 const NIGHT_FULL_END = 5; 

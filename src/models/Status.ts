@@ -7,6 +7,8 @@ const StatusSchema = new Schema(
     mediaUrl: { type: String },
     songUrl: { type: String },
     expiresAt: { type: Date, required: true, index: { expireAfterSeconds: 0 } },
+    views: { type: Number, default: 0 },
+    viewers: [{ type: Schema.Types.ObjectId, ref: 'User' }],
   },
   { timestamps: true }
 );

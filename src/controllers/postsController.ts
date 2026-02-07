@@ -13,7 +13,11 @@ const __dirname = path.dirname(__filename);
 // Configure multer for image uploads
 const storage = multer.diskStorage({
   destination: (req: Request, file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) => {
-    cb(null, path.join(__dirname, '../../uploads'));
+    const uploadsDir = path.join(__dirname, '../../uploads');
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+    cb(null, uploadsDir);
   },
   filename: (req: Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -31,11 +35,50 @@ export const createPost = [
       const userId = (req as any).user.id;
       console.log('Backend createPost - req.body:', req.body);
       console.log('Backend createPost - req.files:', (req as any).files);
-      
-      const imageUrl = (req as any).files?.image ? `/uploads/${(req as any).files.image[0].filename}` : undefined;
+
+      // Build absolute base URL from request so frontend receives fully-qualified secure URLs
+      const protocol = req.protocol;
+      const host = req.get('host');
+      const baseUrl = `${protocol}://${host}`;
+
+      const imageUrl = (req as any).files?.image
+        ? `${baseUrl}/uploads/${(req as any).files.image[0].filename}`
+        : req.body?.imageUrl
+        ? (() => {
+            let s = req.body.imageUrl as string;
+            if (!s.startsWith('http')) {
+              if (!s.startsWith('/')) {
+                s = '/' + s;
+              }
+              return `${baseUrl}${s}`;
+            }
+            return s;
+          })()
+        : undefined;
+
       // allow using an uploaded file or an existing song URL passed in the body
-      const songUrl = (req as any).files?.song ? `/uploads/${(req as any).files.song[0].filename}` : (req.body?.songUrl || undefined);
-      
+      let songUrl: string | undefined;
+      if ((req as any).files?.song) {
+        songUrl = `${baseUrl}/uploads/${(req as any).files.song[0].filename}`;
+      } else if (req.body?.songUrl) {
+        let s = req.body.songUrl as string;
+        // If passed a relative or incomplete path, construct absolute URL
+        if (!s.startsWith('http')) {
+          // Starts with / (frontend path) or is just a filename — construct as absolute URL
+          if (!s.startsWith('/')) {
+            s = '/' + s;
+          }
+          songUrl = `${baseUrl}${s}`;
+        } else {
+          // Already a full HTTP(S) URL
+          songUrl = s;
+        }
+      } else {
+        songUrl = undefined;
+      }
+
+      console.log('Backend createPost - computed URLs:', { baseUrl, imageUrl, songUrl });
+
       const anonFlag = (anonymous === 'true' || anonymous === true);
       console.log('Backend createPost - saving with:', { content, imageUrl, songUrl, userId, anonymous: anonFlag });
 
