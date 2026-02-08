@@ -116,7 +116,8 @@ router.post('/', requireAuth, upload.single('file'), (req, res) => {
     // Generate file hash for integrity verification
     const fileHash = generateFileHash(req.file.path);
 
-    const protocol = req.protocol;
+    // Respect proxy headers when constructing absolute URLs
+    const protocol = (req.get('x-forwarded-proto') as string) || req.protocol || 'http';
     const host = req.get('host');
     const fileUrl = `${protocol}://${host}/uploads/${req.file.filename}`;
 

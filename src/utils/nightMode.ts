@@ -9,7 +9,7 @@ export interface NightModeTimeInfo {
   message: string;
 }
 const NIGHT_ENTRY_START = 22; // 10:00 PM
-const NIGHT_ENTRY_END_HOUR = 3; // 3:30 AM
+const NIGHT_ENTRY_END_HOUR = 5; // 3:30 AM
 const NIGHT_ENTRY_END_MINUTE = 30;
 const DAY_START = 5;
 const NIGHT_FULL_END = 5; 

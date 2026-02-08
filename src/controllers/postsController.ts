@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { createNotification } from './notificationController.js';
 import { calculateScore } from '../utils/yourVoiceAI.js';
 import fs from 'fs';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,9 +19,11 @@ export const createPost = async (req: Request, res: Response) => {
     console.log('Backend createPost - req.files:', (req as any).files);
 
     // Build absolute base URL from request so frontend receives fully-qualified secure URLs
-    const protocol = req.protocol;
+    // Use X-Forwarded-Proto for proxy scenarios (Render, Docker, nginx, etc.)
+    const protocol = req.get('x-forwarded-proto') || req.protocol || 'http';
     const host = req.get('host');
     const baseUrl = `${protocol}://${host}`;
+    console.log('Backend createPost - computed baseUrl:', baseUrl);
 
     const imageUrl = (req as any).files?.image
       ? `${baseUrl}/uploads/${(req as any).files.image[0].filename}`
@@ -36,6 +39,18 @@ export const createPost = async (req: Request, res: Response) => {
           return s;
         })()
       : undefined;
+
+    if ((req as any).files?.image) {
+      console.log(`File uploaded with name: ${(req as any).files.image[0].filename}, size: ${(req as any).files.image[0].size}`);
+      // Verify file exists after multer saves it
+      const filePath = path.join(process.cwd(), 'backe', 'uploads', (req as any).files.image[0].filename);
+      if (fs.existsSync(filePath)) {
+        const fileSize = fs.statSync(filePath).size;
+        console.log(`File verified on disk: ${filePath}, actual size: ${fileSize}`);
+      } else {
+        console.error(`File NOT found on disk after upload: ${filePath}`);
+      }
+    }
 
     // allow using an uploaded file or an existing song URL passed in the body
     let songUrl: string | undefined;

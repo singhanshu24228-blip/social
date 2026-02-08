@@ -59,8 +59,23 @@ app.use('/api/upload', uploadRoutes);
 // Log requests to uploads and serve uploaded images with proper cache control
 app.use('/uploads', (req, res, next) => {
   const start = Date.now();
+  // Log request headers to help debug client issues
+  try {
+    console.log('[uploads request] %s %s headers: %s', req.method, req.originalUrl, JSON.stringify(req.headers));
+  } catch (e) {
+    console.log('[uploads request] %s %s (failed to stringify headers)', req.method, req.originalUrl);
+  }
+
   res.on('finish', () => {
     console.log(`[uploads] ${req.method} ${req.originalUrl} ${res.statusCode} If-Modified-Since:${req.get('if-modified-since') || ''} took ${Date.now() - start}ms`);
+    try {
+      console.log('[uploads response headers] Content-Type:%s Content-Length:%s', res.getHeader('Content-Type'), res.getHeader('Content-Length'));
+      if (typeof (res as any).getHeaders === 'function') {
+        console.log('[uploads response all headers]', (res as any).getHeaders());
+      }
+    } catch (e) {
+      // ignore
+    }
   });
   next();
 });
@@ -71,17 +86,53 @@ const uploadsStaticOptions: any = {
     // Add headers to prevent corruption and improve mobile caching
     res.setHeader('X-Content-Type-Options', 'nosniff');
     
+    // Explicitly set correct Content-Type based on file extension
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeTypes: { [key: string]: string } = {
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.gif': 'image/gif',
+      '.webp': 'image/webp',
+      '.mp4': 'video/mp4',
+      '.webm': 'video/webm',
+      '.mov': 'video/quicktime',
+      '.m4a': 'audio/mp4',
+      '.mp3': 'audio/mpeg',
+    };
+    
+    if (mimeTypes[ext]) {
+      res.setHeader('Content-Type', mimeTypes[ext]);
+    }
+
+    // Always allow cross-origin anonymous image requests so browser can load images
+    // when frontend runs on a different origin/port (Vite dev server, etc.)
+    try {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    } catch (e) {
+      // ignore
+    }
+
     // Check if file has valid size (avoid serving partially downloaded files)
     try {
       const stats = fs.statSync(filePath);
       if (stats.size > 0) {
         res.setHeader('Content-Length', stats.size.toString());
       }
+      // Log the headers we're setting for easier debugging
+      try {
+        const ct = res.getHeader('Content-Type');
+        const cl = res.getHeader('Content-Length');
+        const cc = res.getHeader('Cache-Control');
+        console.log('[uploads setHeaders] %s -> Content-Type:%s Content-Length:%s Cache-Control:%s', path.basename(filePath), ct, cl, cc);
+      } catch (e) {
+        // ignore
+      }
     } catch (e) {
       console.warn(`Could not stat file ${filePath}:`, e);
     }
 
-    if (process.env.DISABLE_UPLOADS_CACHE === 'true') {
+    if (process.env.DISABLE_UPLOADS_CACHE?.trim() === 'true') {
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
@@ -101,7 +152,7 @@ const uploadsStaticOptions: any = {
 };
 
 // If caching is disabled, also turn off ETag and Last-Modified handling to avoid 304 responses
-if (process.env.DISABLE_UPLOADS_CACHE === 'true') {
+if (process.env.DISABLE_UPLOADS_CACHE?.trim() === 'true') {
   uploadsStaticOptions.etag = false;
   uploadsStaticOptions.lastModified = false;
 }
@@ -109,13 +160,11 @@ if (process.env.DISABLE_UPLOADS_CACHE === 'true') {
 app.use('/uploads', express.static(path.join(__dirname, '../uploads'), uploadsStaticOptions));
 
 app.get('/health', (req, res) => res.json({ ok: true }));
-
-// SPA fallback - serve index.html for all non-API routes
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../../frontend/dist/index.html'));
 });
 
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 5000;
 const server = http.createServer(app);
 
 async function start() {
