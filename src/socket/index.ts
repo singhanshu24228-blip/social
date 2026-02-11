@@ -9,10 +9,61 @@ import { getJwtSecret } from '../utils/jwt.js';
 
 export let ioInstance: Server | null = null;
 
+export function getTokenFromHandshake(handshake: {
+  headers?: Record<string, unknown>;
+  auth?: Record<string, unknown>;
+}): string | undefined {
+  const headerAuth = (handshake.headers as any)?.authorization as string | undefined;
+  if (headerAuth && headerAuth.startsWith('Bearer ')) {
+    return headerAuth.replace('Bearer ', '');
+  }
+
+  const authToken = (handshake as any)?.auth?.token as string | undefined;
+  if (authToken) return authToken;
+
+  const cookieHeader = (handshake.headers as any)?.cookie as string | undefined;
+  if (cookieHeader) {
+    const parts = cookieHeader.split(';').map((p) => p.trim());
+    for (const p of parts) {
+      if (p.startsWith('access_token=')) {
+        return decodeURIComponent(p.substring('access_token='.length));
+      }
+    }
+  }
+
+  return undefined;
+}
+
+export function authenticateHandshake(handshake: {
+  headers?: Record<string, unknown>;
+  auth?: Record<string, unknown>;
+}): { userId: string } {
+  const token = getTokenFromHandshake(handshake);
+  if (!token) throw new Error('Authentication error');
+  const payload: any = jwt.verify(token, getJwtSecret());
+  if (!payload?.id) throw new Error('Authentication error');
+  return { userId: String(payload.id) };
+}
+
 export function initSocket(server: HttpServer) {
+  const isProd = process.env.NODE_ENV === 'production';
+  const clientUrl = process.env.CLIENT_URL?.trim();
+  if (isProd && !clientUrl) {
+    throw new Error('CLIENT_URL missing (required in production for Socket.IO CORS)');
+  }
+
   const io = new Server(server, {
     cors: {
-      origin: process.env.CLIENT_URL || '*',
+      origin: (origin, cb) => {
+        if (!origin) return cb(null, true);
+        if (clientUrl && origin === clientUrl) return cb(null, true);
+        if (!isProd) {
+          if (/^http:\/\/localhost:\d+$/.test(origin)) return cb(null, true);
+          if (/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) return cb(null, true);
+          if (/^http:\/\/\[::1\]:\d+$/.test(origin)) return cb(null, true);
+        }
+        return cb(new Error(`CORS blocked for origin: ${origin}`));
+      },
       methods: ["GET", "POST"],
       credentials: true,
     },
@@ -22,32 +73,8 @@ export function initSocket(server: HttpServer) {
 
   io.use(async (socket: Socket, next) => {
     try {
-      // Accept token via Authorization header, handshake auth, or cookies
-      let token: string | undefined;
-      const headerAuth = socket.handshake.headers.authorization;
-      if (headerAuth && headerAuth.startsWith('Bearer ')) {
-        token = headerAuth.replace('Bearer ', '');
-      } else if ((socket.handshake as any).auth && (socket.handshake as any).auth.token) {
-        token = (socket.handshake as any).auth.token;
-      } else if (socket.handshake.headers.cookie) {
-        // parse cookie string to find access_token
-        try {
-          // use simple parsing to avoid extra dependency
-          const cookieStr = socket.handshake.headers.cookie as string;
-          const parts = cookieStr.split(';').map((p) => p.trim());
-          for (const p of parts) {
-            if (p.startsWith('access_token=')) {
-              token = decodeURIComponent(p.substring('access_token='.length));
-              break;
-            }
-          }
-        } catch (e) {
-          // ignore
-        }
-      }
-      if (!token) return next(new Error('Authentication error'));
-      const payload: any = jwt.verify(token, getJwtSecret());
-      (socket as any).userId = payload.id;
+      const { userId } = authenticateHandshake(socket.handshake as any);
+      (socket as any).userId = userId;
       next();
     } catch (err) {
       console.error('Socket auth failed', err);
@@ -95,11 +122,20 @@ export function initSocket(server: HttpServer) {
     socket.on('group:message', async (payload: any) => {
       try {
         const { groupId, message, mediaUrl, mediaType, localId, isVoice, voiceGender } = payload || {};
-        if (!groupId || (!message && !mediaUrl)) return;
+        if (!groupId || (!message && !mediaUrl)) {
+          socket.emit('group:message:error', { message: 'Missing group ID or message content' });
+          return;
+        }
         const group = await Group.findById(groupId).select('members');
-        if (!group) return;
+        if (!group) {
+          socket.emit('group:message:error', { message: 'Group not found' });
+          return;
+        }
         const isMember = group.members.some((m: any) => String(m) === String(userId));
-        if (!isMember) return;
+        if (!isMember) {
+          socket.emit('group:message:error', { message: 'You are not a member of this group' });
+          return;
+        }
 
         let voiceUrl = null;
 
@@ -141,6 +177,8 @@ export function initSocket(server: HttpServer) {
           message: gm.message,
           mediaUrl: gm.mediaUrl,
           mediaType: gm.mediaType,
+          voiceUrl: gm.voiceUrl,
+          voiceGender: gm.voiceGender,
           createdAt: gm.createdAt,
           localId,
         };
@@ -160,7 +198,10 @@ export function initSocket(server: HttpServer) {
     socket.on('private:message', async (payload: any) => {
       try {
         const { toUserId, message, mediaUrl, mediaType, localId, isVoice, voiceGender } = payload || {};
-        if (!toUserId || (!message && !mediaUrl)) return;
+        if (!toUserId || (!message && !mediaUrl)) {
+          socket.emit('private:message:error', { message: 'Missing recipient or message content' });
+          return;
+        }
 
         let voiceUrl = null;
 
@@ -229,6 +270,7 @@ export function initSocket(server: HttpServer) {
         socket.emit('private:message:sent', out);
       } catch (err) {
         console.error('private:message failed', err);
+        socket.emit('private:message:error', { message: 'Failed to send message' });
       }
     });
 

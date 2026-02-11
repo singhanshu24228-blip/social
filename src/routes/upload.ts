@@ -3,58 +3,66 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import { fileURLToPath } from 'url';
 import { requireAuth } from '../middleware/auth.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { uploadsDir } from '../utils/paths.js';
+import { validateUploadedFile } from '../utils/fileValidation.js';
 
 const router = Router();
 
-// File signature validation - check magic bytes to ensure files are valid
-const validateFileSignature = (filePath: string, mimetype: string): boolean => {
-  try {
-    const buffer = Buffer.alloc(12);
-    const fd = fs.openSync(filePath, 'r');
-    fs.readSync(fd, buffer, 0, 12, 0);
-    fs.closeSync(fd);
+const extensionFromMime = (mimetype: string): string => {
+  const m = (mimetype || '').toLowerCase();
+  const map: Record<string, string> = {
+    'image/jpeg': '.jpg',
+    'image/jpg': '.jpg',
+    'image/png': '.png',
+    'image/gif': '.gif',
+    'image/webp': '.webp',
+    'image/svg+xml': '.svg',
+    'video/mp4': '.mp4',
+    'video/webm': '.webm',
+    'video/quicktime': '.mov',
+  };
+  if (map[m]) return map[m];
+  const parts = m.split('/');
+  const subtype = parts[1] || '';
+  const safe = subtype.replace(/[^a-z0-9]+/g, '');
+  return safe ? `.${safe}` : '';
+};
 
-    // Check file signatures (magic bytes)
-    if (mimetype.startsWith('image/')) {
-      // JPEG: FF D8 FF
-      if (mimetype === 'image/jpeg' && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
-        return true;
-      }
-      // PNG: 89 50 4E 47
-      if (mimetype === 'image/png' && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) {
-        return true;
-      }
-      // GIF: 47 49 46
-      if (mimetype === 'image/gif' && buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) {
-        return true;
-      }
-      // WebP: RIFF ... WEBP
-      if (mimetype === 'image/webp' && buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46) {
-        return true;
-      }
-      // For other image types, just check that file is not empty
-      return true;
-    }
+const getUploadExtension = (originalname: string, mimetype: string): string => {
+  const ext = path.extname(originalname || '').toLowerCase();
+  const validExtensionsForMime: Record<string, string[]> = {
+    'image/jpeg': ['.jpg', '.jpeg'],
+    'image/jpg': ['.jpg', '.jpeg'],
+    'image/png': ['.png'],
+    'image/gif': ['.gif'],
+    'image/webp': ['.webp'],
+    'image/svg+xml': ['.svg'],
+    'video/mp4': ['.mp4'],
+    'video/webm': ['.webm'],
+    'video/quicktime': ['.mov'],
+  };
 
-    if (mimetype.startsWith('video/')) {
-      // MP4: 66 74 79 70 (ftyp)
-      if (buffer[4] === 0x66 && buffer[5] === 0x74 && buffer[6] === 0x79 && buffer[7] === 0x70) {
-        return true;
-      }
-      // Just check not empty for other video types
-      return true;
-    }
+  const mimeType = (mimetype || '').toLowerCase();
+  const validExts = validExtensionsForMime[mimeType];
 
-    return true;
-  } catch (error) {
-    console.error('File signature validation error:', error);
-    return false;
+  // If extension matches MIME type, use it
+  if (ext && validExts && validExts.includes(ext)) {
+    return ext;
   }
+
+  // Otherwise, infer from MIME type
+  const inferred = extensionFromMime(mimetype);
+  if (inferred) return inferred;
+
+  // If no mime match and no original extension, use generic extension
+  if (ext) return ext;
+  
+  // Last resort: generate an extension based on file type
+  if (mimeType.startsWith('image/')) return '.jpg';
+  if (mimeType.startsWith('video/')) return '.mp4';
+  
+  return '';
 };
 
 // Generate SHA256 hash of file for integrity verification
@@ -71,7 +79,6 @@ const generateFileHash = (filePath: string): string => {
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadsDir = path.join(__dirname, '../../uploads');
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
@@ -79,7 +86,8 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'image-' + uniqueSuffix + path.extname(file.originalname));
+    const ext = getUploadExtension(file.originalname, file.mimetype);
+    cb(null, 'image-' + uniqueSuffix + ext);
   }
 });
 
@@ -89,8 +97,16 @@ const upload = multer({
     fileSize: 50 * 1024 * 1024, // 50MB limit
   },
   fileFilter: (req, file, cb) => {
+    const mt = (file.mimetype || '').toLowerCase();
+    // HEIC/HEIF are common on iOS but not reliably viewable on the web without conversion.
+    // Reject early with a clear message to avoid "corrupted image" reports in the UI.
+    if (mt === 'image/heic' || mt === 'image/heif') {
+      cb(new Error('HEIC/HEIF images are not supported. Please upload JPG/PNG/WebP instead.'));
+      return;
+    }
+
     // Allow images and videos
-    if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/')) {
+    if (mt.startsWith('image/') || mt.startsWith('video/')) {
       cb(null, true);
     } else {
       cb(new Error('Only image and video files are allowed'));
@@ -99,17 +115,48 @@ const upload = multer({
 });
 
 // Upload endpoint for files
-router.post('/', requireAuth, upload.single('file'), (req, res) => {
+router.post(
+  '/',
+  requireAuth,
+  (req, res, next) => {
+    upload.single('file')(req as any, res as any, (err: any) => {
+      if (err) {
+        console.error('[upload] Multer error:', err.message);
+        return res.status(400).json({ message: err.message || 'Upload failed' });
+      }
+      next();
+    });
+  },
+  (req, res) => {
   try {
     if (!req.file) {
+      console.log('[upload] No file provided in request');
       return res.status(400).json({ message: 'No file uploaded' });
     }
 
+    // Log upload details for debugging
+    console.log('[upload] File received:', {
+      filename: req.file.filename,
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size,
+      path: req.file.path
+    });
+
     // Validate file signature to ensure it's not corrupted
-    if (!validateFileSignature(req.file.path, req.file.mimetype)) {
-      fs.unlinkSync(req.file.path); // Delete corrupted file
+    if (!validateUploadedFile(req.file.path, req.file.mimetype)) {
+      console.error('[upload] File validation failed for:', {
+        filename: req.file.filename,
+        mimetype: req.file.mimetype,
+        size: req.file.size
+      });
+      try {
+        fs.unlinkSync(req.file.path); // best-effort cleanup
+      } catch (e) {
+        console.warn('[upload] Failed to delete invalid upload:', req.file.path, e);
+      }
       return res.status(400).json({ 
-        message: 'Uploaded file appears to be corrupted or invalid. Please try uploading again.' 
+        message: `File validation failed: ${req.file.mimetype} file appears to be corrupted or invalid. Please try a different file or convert to JPG/PNG/WebP format.` 
       });
     }
 
@@ -121,6 +168,12 @@ router.post('/', requireAuth, upload.single('file'), (req, res) => {
     const host = req.get('host');
     const fileUrl = `${protocol}://${host}/uploads/${req.file.filename}`;
 
+    console.log('[upload] File validated and stored successfully:', {
+      filename: req.file.filename,
+      hash: fileHash,
+      url: fileUrl
+    });
+
     res.json({
       success: true,
       url: fileUrl,
@@ -131,7 +184,7 @@ router.post('/', requireAuth, upload.single('file'), (req, res) => {
       uploadedAt: new Date().toISOString()
     });
   } catch (error) {
-    console.error('Upload error:', error);
+    console.error('[upload] Server error:', error);
     res.status(500).json({ message: 'Failed to upload file' });
   }
 });

@@ -18,6 +18,128 @@ export interface IUser extends Document {
   comparePassword(candidate: string): Promise<boolean>;
 }
 
+const useInMemory =
+  process.env.NODE_ENV === 'test' && process.env.IN_MEMORY_DB?.trim() === 'true';
+
+let UserModel: any;
+
+if (useInMemory) {
+  type UserRecord = {
+    _id: string;
+    username: string;
+    name: string;
+    email: string;
+    phone?: string;
+    password: string;
+    location: { type: 'Point'; coordinates: [number, number] };
+    isOnline: boolean;
+    isInNightMode?: boolean;
+    nightModeEnteredAt?: Date;
+    lastNightModeExit?: Date;
+  };
+
+  const users = new Map<string, UserRecord>();
+
+  class InMemoryUser {
+    _id: string;
+    username: string;
+    name: string;
+    email: string;
+    phone?: string;
+    password: string;
+    location: { type: 'Point'; coordinates: [number, number] };
+    isOnline: boolean;
+    isInNightMode?: boolean;
+    nightModeEnteredAt?: Date;
+    lastNightModeExit?: Date;
+
+    constructor(data: any) {
+      this._id = data?._id || new mongoose.Types.ObjectId().toHexString();
+      this.username = data.username;
+      this.name = data.name;
+      this.email = data.email;
+      this.phone = data.phone;
+      this.password = data.password;
+      this.location = data.location;
+      this.isOnline = Boolean(data.isOnline);
+      this.isInNightMode = data.isInNightMode;
+      this.nightModeEnteredAt = data.nightModeEnteredAt;
+      this.lastNightModeExit = data.lastNightModeExit;
+    }
+
+    static __resetForTests() {
+      users.clear();
+    }
+
+    static async findOne(query: any) {
+      if (query?.email) {
+        for (const u of users.values()) {
+          if (u.email === query.email) return new InMemoryUser(u);
+        }
+        return null;
+      }
+      return null;
+    }
+
+    static findById(id: string) {
+      const u = users.get(String(id));
+      if (!u) return null as any;
+      const doc = new InMemoryUser(u);
+      return {
+        select: () => doc,
+        lean: async () => ({ ...u }),
+        then: undefined,
+      } as any;
+    }
+
+    static async findByIdAndUpdate(id: string, update: any) {
+      const u = users.get(String(id));
+      if (!u) return null;
+      const next = { ...u, ...update };
+      users.set(String(id), next);
+      return new InMemoryUser(next);
+    }
+
+    static async isUsernameAvailable(
+      _username: string,
+      _coordinates: [number, number],
+      _radiusMeters = 2000,
+      _excludeUserId?: string | mongoose.Types.ObjectId
+    ) {
+      return true;
+    }
+
+    async save() {
+      const hashed =
+        this.password && this.password.startsWith('$2')
+          ? this.password
+          : await bcrypt.hash(this.password, 4);
+      const rec: UserRecord = {
+        _id: this._id,
+        username: this.username,
+        name: this.name,
+        email: this.email,
+        phone: this.phone,
+        password: hashed,
+        location: this.location,
+        isOnline: this.isOnline,
+        isInNightMode: this.isInNightMode,
+        nightModeEnteredAt: this.nightModeEnteredAt,
+        lastNightModeExit: this.lastNightModeExit,
+      };
+      users.set(this._id, rec);
+      this.password = hashed;
+      return this;
+    }
+
+    async comparePassword(candidate: string) {
+      return bcrypt.compare(candidate, this.password);
+    }
+  }
+
+  UserModel = InMemoryUser as any;
+} else {
+
 const UserSchema = new Schema<IUser>(
   {
     username: { type: String, required: true },
@@ -64,7 +186,7 @@ UserSchema.statics.isUsernameAvailable = async function (
   username: string,
   coordinates: [number, number],
   radiusMeters = 2000,
-  excludeUserId?: string
+  excludeUserId?: string | mongoose.Types.ObjectId
 ) {
   const query: any = {
     username,
@@ -76,10 +198,17 @@ UserSchema.statics.isUsernameAvailable = async function (
     },
   };
   if (excludeUserId) {
-    query._id = { $ne: excludeUserId };
+    const excludeId =
+      typeof excludeUserId === 'string' && mongoose.isValidObjectId(excludeUserId)
+        ? new mongoose.Types.ObjectId(excludeUserId)
+        : excludeUserId;
+    query._id = { $ne: excludeId };
   }
   const res = await this.findOne(query).lean();
   return !res;
 };
 
-export default mongoose.model<IUser>('User', UserSchema);
+UserModel = mongoose.model<IUser>('User', UserSchema);
+}
+
+export default UserModel;

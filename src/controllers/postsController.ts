@@ -2,31 +2,32 @@ import { Request, Response } from 'express';
 import path from 'path';
 import Post, { IPost } from '../models/Post.js';
 import User from '../models/User.js';
-import { fileURLToPath } from 'url';
 import { createNotification } from './notificationController.js';
 import { calculateScore } from '../utils/yourVoiceAI.js';
 import fs from 'fs';
-import crypto from 'crypto';
+import { uploadsDir, frontendPublicDir } from '../utils/paths.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const isProd = process.env.NODE_ENV === 'production';
+const debugPosts = !isProd && process.env.DEBUG_POSTS?.trim() === 'true';
 
 export const createPost = async (req: Request, res: Response) => {
   try {
     const { content, anonymous } = req.body;
     const userId = (req as any).user._id;
-    console.log('Backend createPost - req.body:', req.body);
-    console.log('Backend createPost - req.files:', (req as any).files);
+    if (debugPosts) {
+      console.log('Backend createPost - req.body:', req.body);
+      console.log('Backend createPost - req.files:', (req as any).files);
+    }
 
     // Build absolute base URL from request so frontend receives fully-qualified secure URLs
     // Use X-Forwarded-Proto for proxy scenarios (Render, Docker, nginx, etc.)
     const protocol = req.get('x-forwarded-proto') || req.protocol || 'http';
     const host = req.get('host');
     const baseUrl = `${protocol}://${host}`;
-    console.log('Backend createPost - computed baseUrl:', baseUrl);
+    if (debugPosts) console.log('Backend createPost - computed baseUrl:', baseUrl);
 
     const imageUrl = (req as any).files?.image
-      ? `${baseUrl}/uploads/${(req as any).files.image[0].filename}`
+      ? `/uploads/${(req as any).files.image[0].filename}`
       : req.body?.imageUrl
       ? (() => {
           let s = req.body.imageUrl as string;
@@ -34,19 +35,23 @@ export const createPost = async (req: Request, res: Response) => {
             if (!s.startsWith('/')) {
               s = '/' + s;
             }
-            return `${baseUrl}${s}`;
+            return s;
           }
           return s;
         })()
       : undefined;
 
     if ((req as any).files?.image) {
-      console.log(`File uploaded with name: ${(req as any).files.image[0].filename}, size: ${(req as any).files.image[0].size}`);
+      if (debugPosts) {
+        console.log(
+          `File uploaded with name: ${(req as any).files.image[0].filename}, size: ${(req as any).files.image[0].size}`
+        );
+      }
       // Verify file exists after multer saves it
-      const filePath = path.join(process.cwd(), 'backe', 'uploads', (req as any).files.image[0].filename);
+      const filePath = path.join(uploadsDir, (req as any).files.image[0].filename);
       if (fs.existsSync(filePath)) {
         const fileSize = fs.statSync(filePath).size;
-        console.log(`File verified on disk: ${filePath}, actual size: ${fileSize}`);
+        if (debugPosts) console.log(`File verified on disk: ${filePath}, actual size: ${fileSize}`);
       } else {
         console.error(`File NOT found on disk after upload: ${filePath}`);
       }
@@ -55,16 +60,15 @@ export const createPost = async (req: Request, res: Response) => {
     // allow using an uploaded file or an existing song URL passed in the body
     let songUrl: string | undefined;
     if ((req as any).files?.song) {
-      songUrl = `${baseUrl}/uploads/${(req as any).files.song[0].filename}`;
+      songUrl = `/uploads/${(req as any).files.song[0].filename}`;
     } else if (req.body?.songUrl) {
       let s = req.body.songUrl as string;
-      // If passed a relative or incomplete path, construct absolute URL
+      // If passed a relative or incomplete path, keep as relative
       if (!s.startsWith('http')) {
-        // Starts with / (frontend path) or is just a filename — construct as absolute URL
         if (!s.startsWith('/')) {
           s = '/' + s;
         }
-        songUrl = `${baseUrl}${s}`;
+        songUrl = s;
       } else {
         // Already a full HTTP(S) URL
         songUrl = s;
@@ -73,10 +77,12 @@ export const createPost = async (req: Request, res: Response) => {
       songUrl = undefined;
     }
 
-    console.log('Backend createPost - computed URLs:', { baseUrl, imageUrl, songUrl });
+    if (debugPosts) console.log('Backend createPost - computed URLs:', { baseUrl, imageUrl, songUrl });
 
     const anonFlag = (anonymous === 'true' || anonymous === true);
-    console.log('Backend createPost - saving with:', { content, imageUrl, songUrl, userId, anonymous: anonFlag });
+    if (debugPosts) {
+      console.log('Backend createPost - saving with:', { content, imageUrl, songUrl, userId, anonymous: anonFlag });
+    }
 
     // Fetch user to get username
     const user = await User.findById(userId);
@@ -104,7 +110,7 @@ export const createPost = async (req: Request, res: Response) => {
     // Add score to the response
     postObj.score = calculateScore(postObj);
 
-    console.log('Backend createPost - saved post object:', postObj);
+    if (debugPosts) console.log('Backend createPost - saved post object:', postObj);
 
     res.status(201).json(postObj);
   } catch (error) {
@@ -404,11 +410,7 @@ export const addReaction = async (req: Request, res: Response) => {
 };
 export const getPrivateSongs = async (req: Request, res: Response) => {
   try {
-    // Navigate from backe/src/controllers to root, then to frontend/public
-    const backeDir = path.dirname(__dirname); // backe/src
-    const rootDir = path.dirname(backeDir); // backe
-    const projectRoot = path.dirname(rootDir); // project root
-    const publicDir = path.join(projectRoot, 'frontend', 'public');
+    const publicDir = frontendPublicDir;
     
     // Check if public directory exists
     if (!fs.existsSync(publicDir)) {

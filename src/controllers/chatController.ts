@@ -1,5 +1,4 @@
 import {  Response } from 'express';
-import mongoose from 'mongoose';
 import PrivateMessage from '../models/PrivateMessage.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { ioInstance } from '../socket/index.js';

@@ -5,6 +5,7 @@ import Room from '../models/Room.js';
 import RoomComment from '../models/RoomComment.js';
 import fs from 'fs';
 import path from 'path';
+import { uploadsDir, legacyUploadsDir } from '../utils/paths.js';
 import {
   canUserEnterNightMode,
   getNightModeTimeInfo,
@@ -472,21 +473,24 @@ export const cleanupExpiredNightRooms = async () => {
         for (const mc of mediaComments) {
           try {
             if (mc.mediaUrl) {
+              const tryUnlink = async (base: string, filename: string) => {
+                const filePath = path.join(base, filename);
+                await fs.promises.unlink(filePath).catch(() => {});
+              };
+
               // Parse filename from mediaUrl (expected to be /uploads/<filename>)
               try {
                 const parsed = new URL(mc.mediaUrl);
                 const filename = path.basename(parsed.pathname);
-                const uploadsDir = path.resolve(__dirname, '..', '..', 'uploads');
-                const filePath = path.join(uploadsDir, filename);
-                await fs.promises.unlink(filePath).catch(() => {});
+                await tryUnlink(uploadsDir, filename);
+                await tryUnlink(legacyUploadsDir, filename);
               } catch (e) {
                 // If URL parsing fails, attempt a fallback by extracting after /uploads/
                 const idx = mc.mediaUrl.indexOf('/uploads/');
                 if (idx !== -1) {
                   const filename = mc.mediaUrl.substring(idx + '/uploads/'.length);
-                  const uploadsDir = path.resolve(__dirname, '..', '..', 'uploads');
-                  const filePath = path.join(uploadsDir, filename);
-                  await fs.promises.unlink(filePath).catch(() => {});
+                  await tryUnlink(uploadsDir, filename);
+                  await tryUnlink(legacyUploadsDir, filename);
                 }
               }
             }

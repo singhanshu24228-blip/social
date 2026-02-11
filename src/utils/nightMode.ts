@@ -11,12 +11,10 @@ export interface NightModeTimeInfo {
 const NIGHT_ENTRY_START = 22; // 10:00 PM
 const NIGHT_ENTRY_END_HOUR = 5; // 3:30 AM
 const NIGHT_ENTRY_END_MINUTE = 30;
-const DAY_START = 5;
 const NIGHT_FULL_END = 5; 
 export function isCurrentlyInNightMode(): boolean {
   const now = new Date();
   const hour = now.getHours();
-  const minute = now.getMinutes();
   if (hour >= NIGHT_ENTRY_START) {
     return true;
   }
@@ -50,7 +48,6 @@ export function getNightModeTimeInfo(): NightModeTimeInfo {
   const now = new Date();
   const hour = now.getHours();
   const minute = now.getMinutes();
-  const second = now.getSeconds();
 
   const isInNight = isCurrentlyInNightMode();
   const isInEntry = isInNightEntryWindow();

@@ -1,10 +1,13 @@
 import axios from 'axios';
 import dotenv from 'dotenv';
 
-dotenv.config();
+if (process.env.NODE_ENV !== 'test') {
+  dotenv.config();
+}
 
 const YOURVOICE_API_KEY = process.env.YOURVOICE_API_KEY;
 const YOURVOICE_API_BASE = 'https://api.yourvoice.ai';
+const debugTts = process.env.NODE_ENV !== 'production' && process.env.DEBUG_TTS?.trim() === 'true';
 
 /**
  * Calculate post score based on reactions and time decay
@@ -70,16 +73,16 @@ export interface TextToSpeechOptions {
  * Convert text to speech using Google's Text-to-Speech endpoint
  * Google Translate API provides free TTS
  */
-const generateGoogleTTS = async (text: string, gender: 'male' | 'female'): Promise<string> => {
+const generateGoogleTTS = async (text: string, _gender: 'male' | 'female'): Promise<string> => {
   try {
-    console.log('[TTS] Attempting Google Translate TTS...');
+    if (debugTts) console.log('[TTS] Attempting Google Translate TTS...');
     // Use Google Translate's TTS endpoint (free, no key required)
     const lang = 'en';
     const encodedText = encodeURIComponent(text);
 
     // Fetch the actual audio data from Google TTS
     const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodedText}&tl=${lang}&client=tw-ob`;
-    console.log('[TTS] Fetching from Google TTS URL:', url);
+    if (debugTts) console.log('[TTS] Fetching from Google TTS URL:', url);
 
     const response = await axios.get(url, {
       responseType: 'arraybuffer',
@@ -93,7 +96,7 @@ const generateGoogleTTS = async (text: string, gender: 'male' | 'female'): Promi
       // Convert audio buffer to base64 data URI
       const base64Audio = Buffer.from(response.data).toString('base64');
       const dataUri = `data:audio/mp3;base64,${base64Audio}`;
-      console.log('[TTS] Google TTS succeeded, returning data URI');
+      if (debugTts) console.log('[TTS] Google TTS succeeded, returning data URI');
       return dataUri;
     } else {
       throw new Error(`Google TTS returned status ${response.status}`);
@@ -116,11 +119,18 @@ export const textToSpeech = async (options: TextToSpeechOptions): Promise<string
       throw new Error('Text cannot be empty');
     }
 
-    console.log('[TTS] Converting text to speech:', { text, gender, language, speed });
+    if (debugTts) {
+      console.log('[TTS] Converting text to speech:', {
+        textLength: text.length,
+        gender,
+        language,
+        speed,
+      });
+    }
 
     // Try YourVoice API first
     try {
-      console.log('[TTS] Calling YourVoice API...');
+      if (debugTts) console.log('[TTS] Calling YourVoice API...');
       const response = await axios.post(
         `${YOURVOICE_API_BASE}/synthesize`,
         {
@@ -139,33 +149,33 @@ export const textToSpeech = async (options: TextToSpeechOptions): Promise<string
         }
       );
 
-      console.log('[TTS] YourVoice API response status:', response.status);
+      if (debugTts) console.log('[TTS] YourVoice API response status:', response.status);
 
       // Return audio URL from response
       if (response.data?.audio_url) {
-        console.log('[TTS] YourVoice returned audio_url:', response.data.audio_url);
+        if (debugTts) console.log('[TTS] YourVoice returned audio_url');
         return response.data.audio_url;
       }
 
       // If base64 audio is returned, return it with data URI prefix
       if (response.data?.audio) {
-        console.log('[TTS] YourVoice returned base64 audio');
+        if (debugTts) console.log('[TTS] YourVoice returned base64 audio');
         return `data:audio/mp3;base64,${response.data.audio}`;
       }
 
-      console.log('[TTS] YourVoice response missing audio, trying fallback');
+      if (debugTts) console.log('[TTS] YourVoice response missing audio, trying fallback');
     } catch (yourVoiceError: any) {
       console.warn('[TTS] YourVoice API error:', {
         message: yourVoiceError?.message,
         status: yourVoiceError?.response?.status,
         data: yourVoiceError?.response?.data,
       });
-      console.log('[TTS] Falling back to Google TTS...');
+      if (debugTts) console.log('[TTS] Falling back to Google TTS...');
     }
 
     // Fallback to Google Translate TTS
     const googleUrl = await generateGoogleTTS(text, gender);
-    console.log('[TTS] Using Google TTS URL');
+    if (debugTts) console.log('[TTS] Using Google TTS URL');
     return googleUrl;
   } catch (error: any) {
     console.error('[TTS] Complete failure:', {

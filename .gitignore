@@ -5,6 +5,8 @@ dist/
 .vscode/
 .env.example
 TODO.md
+uploads/
+private/
 
 node_modules/
 

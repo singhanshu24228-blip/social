@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import Group from '../models/Group.js';
 import User from '../models/User.js';
 import { AuthRequest } from '../middleware/auth.js';
@@ -56,7 +56,7 @@ export async function deriveAreaAndPincode(lat: number, lng: number): Promise<{ 
   }
 }
 
-export const ensureGroupsForLocation = async (coords: [number, number], ensureMemberUserId?: string) => {
+export const ensureGroupsForLocation = async (coords: [number, number], _ensureMemberUserId?: string) => {
   const [lng, lat] = coords;
   const { areaCode, pincode } = await deriveAreaAndPincode(lat, lng);
 
@@ -166,18 +166,6 @@ export const joinGroup = async (req: AuthRequest, res: Response) => {
     // Ensure user is within allowed range to join
     const user = await User.findById(userId);
     if (!user || !user.location) return res.status(400).json({ message: 'User location required' });
-    // Compute distance using mongo near query
-    const distRes = await User.aggregate([
-      {
-        $geoNear: {
-          near: { type: 'Point', coordinates: user.location.coordinates },
-          distanceField: 'dist',
-          spherical: true,
-          query: { _id: group._id },
-        },
-      },
-    ]).catch(() => []);
-
     function haversine([lng1, lat1]: [number, number], [lng2, lat2]: [number, number]) {
       const R = 6371e3; // meters
       const toRad = (v: number) => (v * Math.PI) / 180;

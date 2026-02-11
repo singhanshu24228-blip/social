@@ -28,3 +28,4 @@ Next steps:
 - Add Socket.io with token auth
 - Implement group logic & messages
 - Add rate-limiting and production readiness
+# social
