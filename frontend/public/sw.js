@@ -1,5 +1,5 @@
-const CACHE_NAME = 'your-voice-cache-v2';
-const UPLOAD_CACHE_NAME = 'your-voice-uploads-v2';
+const CACHE_NAME = 'your-voice-cache-v3';
+const UPLOAD_CACHE_NAME = 'your-voice-uploads-v3';
 const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif'];
 
 self.addEventListener('install', (event) => {
@@ -72,6 +72,18 @@ self.addEventListener('fetch', (event) => {
   // Skip non-GET requests
   if (request.method !== 'GET') {
     return;
+  }
+
+  // Never cache API requests (they must always reflect the latest server state).
+  // Caching `/api/*` responses causes "Post created" but list not updating after deploy.
+  try {
+    const u = new URL(url);
+    if (u.pathname === '/api' || u.pathname.startsWith('/api/')) {
+      event.respondWith(fetch(request));
+      return;
+    }
+  } catch (e) {
+    // ignore URL parsing failures; fall through
   }
 
   // Handle image uploads with network-first strategy

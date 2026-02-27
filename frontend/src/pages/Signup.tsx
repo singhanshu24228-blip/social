@@ -13,6 +13,8 @@ export default function Signup() {
       const res = await api.post('/auth/signup', payload);
       // Server sets auth cookies (access + refresh + csrf). Save user locally for UI state.
       if (res.data.user) localStorage.setItem('user', JSON.stringify(res.data.user));
+      // Optional: backend can expose a Bearer token for cross-domain deployments.
+      if (res.data.accessToken) localStorage.setItem('access_token', String(res.data.accessToken));
       setMsg('Signed up and logged in');
       // Navigate to message page
       window.location.pathname = '/message';

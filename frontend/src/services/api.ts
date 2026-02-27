@@ -3,6 +3,8 @@ import axios from 'axios';
 const devBackendPorts = Array.from({ length: 10 }, (_, i) => 5000 + i);
 let devBackendPortIndex = 0;
 
+const ACCESS_TOKEN_STORAGE_KEY = 'access_token';
+
 const getDevBackendPort = () => devBackendPorts[devBackendPortIndex] ?? 5000;
 
 const getBaseURL = () => {
@@ -37,6 +39,14 @@ const api = axios.create({
   withCredentials: true, // send cookies automatically
 });
 
+const getStoredAccessToken = () => {
+  try {
+    return localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
+};
+
 // Helper to read a cookie value (simple parser)
 function getCookieValue(name: string) {
   if (typeof document === 'undefined') return null;
@@ -50,6 +60,16 @@ function getCookieValue(name: string) {
 api.interceptors.request.use((config) => {
   // Ensure baseURL follows the latest dev backend port selection.
   config.baseURL = getBaseURL();
+
+  // If the backend exposes an access token (EXPOSE_ACCESS_TOKEN=true), use Bearer auth.
+  // This helps when frontend/backend are on different domains (cookies/CSRF may not be readable client-side).
+  const accessToken = getStoredAccessToken();
+  if (accessToken) {
+    config.headers = config.headers || {};
+    if (!(config.headers as any).Authorization) {
+      (config.headers as any).Authorization = `Bearer ${accessToken}`;
+    }
+  }
 
   const method = (config.method || '').toUpperCase();
   if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
@@ -100,7 +120,10 @@ api.interceptors.response.use(
       }
     }
 
-    if (error?.response?.status === 401 && originalRequest && !originalRequest._retry) {
+    // If we're using Bearer auth (localStorage token), don't attempt refresh via cookies/CSRF.
+    const hasStoredToken = Boolean(getStoredAccessToken());
+
+    if (!hasStoredToken && error?.response?.status === 401 && originalRequest && !originalRequest._retry) {
       originalRequest._retry = true;
       try {
         const csrf = getCookieValue('csrf_token');

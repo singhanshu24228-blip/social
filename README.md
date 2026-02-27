@@ -13,6 +13,7 @@ Run locally:
 Notes:
 - Populate `.env` in `backe/` with `MONGODB_URI` and `JWT_SECRET`.
 - Frontend uses `VITE_API_URL` if set.
+- If your frontend and backend are on different domains, cookie auth + CSRF will not work unless you proxy `/api` through the frontend domain (recommended) or you opt into Bearer auth (see below).
 
 ## Render deployment (single service)
 Create a Render **Web Service** (not a Static Site):
@@ -24,6 +25,9 @@ Environment variables:
 - `MONGODB_URI`
 - `JWT_SECRET`
 - `CLIENT_URL` (optional if serving frontend from the same origin; set it if your frontend is hosted on a different domain)
+
+Optional auth env vars:
+- `EXPOSE_ACCESS_TOKEN=true` — include an `accessToken` in `/api/auth/login|signup|refresh` responses so the frontend can use `Authorization: Bearer ...` when cookies/CSRF aren't viable across domains.
 
 What's implemented so far:
 - Signup/Login with email and password (bcrypt + JWT)

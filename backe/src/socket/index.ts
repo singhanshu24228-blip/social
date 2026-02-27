@@ -47,8 +47,13 @@ export function authenticateHandshake(handshake: {
 
 export function initSocket(server: HttpServer) {
   const isProd = process.env.NODE_ENV === 'production';
-  const clientUrl = process.env.CLIENT_URL?.trim();
-  if (isProd && !clientUrl) {
+  const normalizeOrigin = (s: string) => s.trim().replace(/\/+$/, '');
+  const allowedOrigins = (process.env.CLIENT_URL || '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .map(normalizeOrigin);
+  if (isProd && allowedOrigins.length === 0) {
     throw new Error('CLIENT_URL missing (required in production for Socket.IO CORS)');
   }
 
@@ -56,7 +61,7 @@ export function initSocket(server: HttpServer) {
     cors: {
       origin: (origin, cb) => {
         if (!origin) return cb(null, true);
-        if (clientUrl && origin === clientUrl) return cb(null, true);
+        if (allowedOrigins.includes(normalizeOrigin(origin))) return cb(null, true);
         if (!isProd) {
           if (/^http:\/\/localhost:\d+$/.test(origin)) return cb(null, true);
           if (/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) return cb(null, true);

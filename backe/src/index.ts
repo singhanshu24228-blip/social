@@ -29,10 +29,18 @@ import { frontendDistDir, uploadsDir } from './utils/paths.js';
 
 export function createApp() {
   const isProd = process.env.NODE_ENV === 'production';
-  const clientUrl = process.env.CLIENT_URL?.trim();
+  const normalizeOrigin = (s: string) => s.trim().replace(/\/+$/, '');
+  const parseAllowedOrigins = (s: string | undefined) =>
+    (s || '')
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .map(normalizeOrigin);
+
+  const allowedOrigins = parseAllowedOrigins(process.env.CLIENT_URL);
   const debugUploads = !isProd && process.env.DEBUG_UPLOADS?.trim() === 'true';
 
-  if (isProd && !clientUrl) {
+  if (isProd && allowedOrigins.length === 0) {
     console.warn(
       '[cors] CLIENT_URL not set; only same-origin browser requests will be allowed in production.'
     );
@@ -72,13 +80,14 @@ export function createApp() {
   app.use(
     cors((req, cb) => {
       const origin = req.header('Origin');
+      const normalizedOrigin = origin ? normalizeOrigin(origin) : '';
 
       // Non-browser / same-origin navigation requests often omit Origin.
       if (!origin) {
         return cb(null, { credentials: true, origin: false });
       }
 
-      if (clientUrl && origin === clientUrl) {
+      if (allowedOrigins.length > 0 && allowedOrigins.includes(normalizedOrigin)) {
         return cb(null, { credentials: true, origin });
       }
 
@@ -178,10 +187,7 @@ export function createApp() {
         res.setHeader('Content-Type', mimeTypes[ext]);
       }
 
-      if (clientUrl) {
-        res.setHeader('Access-Control-Allow-Origin', clientUrl);
-        res.setHeader('Vary', 'Origin');
-      } else if (!isProd) {
+      if (!isProd) {
         res.setHeader('Access-Control-Allow-Origin', '*');
       }
 
@@ -207,6 +213,20 @@ export function createApp() {
   // Serve uploads from the canonical directory only (backe/uploads).
   // Avoid using the legacy repo-root uploads path to prevent ambiguous lookups
   // which can cause HTML fallbacks to be served as images.
+  // Add a small middleware so Access-Control-Allow-Origin can vary per request origin.
+  app.use('/uploads', (req, res, next) => {
+    const origin = req.header('Origin');
+    if (origin) {
+      const normalized = normalizeOrigin(origin);
+      if (allowedOrigins.length === 0 && !isProd) {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+      } else if (allowedOrigins.includes(normalized)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Vary', 'Origin');
+      }
+    }
+    next();
+  });
   const primary = express.static(uploadsDir, { ...uploadsStaticOptions, fallthrough: false });
   app.use('/uploads', primary);
   // If an uploads file is missing, express.static will forward an ENOENT/404 error.

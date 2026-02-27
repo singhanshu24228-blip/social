@@ -33,7 +33,15 @@ export function connectSocket(token?: string) {
     reconnectionDelay: 2000,
     withCredentials: true,
   };
-  if (token) opts.auth = { token };
+  const storedToken = (() => {
+    try {
+      return localStorage.getItem('access_token') || '';
+    } catch {
+      return '';
+    }
+  })();
+  const effectiveToken = token || storedToken;
+  if (effectiveToken) opts.auth = { token: effectiveToken };
 
   socket = io(getSocketURL(), opts);
   socket.on('connect', () => {

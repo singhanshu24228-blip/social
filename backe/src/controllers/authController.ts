@@ -8,6 +8,7 @@ import { getJwtSecret } from '../utils/jwt.js';
 const isProd = process.env.NODE_ENV === 'production';
 const ACCESS_TOKEN_EXPIRES = 30 * 24 * 60 * 60; // 30 days in seconds
 const REFRESH_TOKEN_EXPIRES = 30 * 24 * 60 * 60; // 30 days in seconds
+const exposeAccessToken = process.env.EXPOSE_ACCESS_TOKEN?.trim() === 'true';
 
 function setAuthCookies(res: any, user: any, existingRefreshTokenHash?: string) {
   // Create short-lived access token (JWT)
@@ -77,9 +78,12 @@ export const signup = async (req: Request, res: Response) => {
     await user.save();
 
     // Set cookies (access + refresh + csrf)
-    setAuthCookies(res, user);
+    const { accessToken } = setAuthCookies(res, user);
 
-    res.status(201).json({ user: { id: user._id, username, name, email } });
+    res.status(201).json({
+      user: { id: user._id, username, name, email },
+      ...(exposeAccessToken ? { accessToken } : {}),
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -107,8 +111,11 @@ export const login = async (req: Request, res: Response) => {
     }
 
     // Rotate/create new tokens
-    setAuthCookies(res, user);
-    res.json({ user: { id: user._id, username: user.username, name: user.name, email: user.email } });
+    const { accessToken } = setAuthCookies(res, user);
+    res.json({
+      user: { id: user._id, username: user.username, name: user.name, email: user.email },
+      ...(exposeAccessToken ? { accessToken } : {}),
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -142,9 +149,12 @@ export const refreshToken = async (req: Request, res: Response) => {
     // Rotate refresh token: delete current and set a new one
     const oldHash = record.tokenHash;
     await RefreshToken.deleteOne({ _id: record._id });
-    setAuthCookies(res, user, oldHash);
+    const { accessToken } = setAuthCookies(res, user, oldHash);
 
-    res.json({ user: { id: user._id, username: user.username, name: user.name, email: user.email } });
+    res.json({
+      user: { id: user._id, username: user.username, name: user.name, email: user.email },
+      ...(exposeAccessToken ? { accessToken } : {}),
+    });
   } catch (err) {
     console.error('Refresh token failed', err);
     res.status(500).json({ message: 'Server error' });
