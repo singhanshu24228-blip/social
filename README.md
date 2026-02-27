@@ -11,8 +11,9 @@ Run locally:
 - Frontend: cd frontend && npm install && npm run dev
 
 Notes:
-- Populate `.env` in `backe/` with `MONGODB_URI` and `JWT_SECRET`.
+- Populate `.env` in `backe/` with `MONGODB_URI`, `JWT_SECRET` and (in production) `CLIENT_URL`.
 - Frontend uses `VITE_API_URL` if set.
+- Status API now serves a follower-based feed (`GET /api/status/feed`); `/api/status/nearby` is maintained for backwards compatibility.
 - If your frontend and backend are on different domains, cookie auth + CSRF will not work unless you proxy `/api` through the frontend domain (recommended) or you opt into Bearer auth (see below).
 
 ## Render deployment (single service)
@@ -37,7 +38,7 @@ What's implemented so far:
 - Frontend skeleton: Signup (requests geolocation), Login, Home (nearby users) and socket presence
 
 Next steps:
-- Group auto-creation, messaging, status, group chat pages and delivery statuses
+- Group auto-creation, messaging, status (visible only to followers), group chat pages and delivery statuses
 - PWA offline caching improvements and push notifications
 - Security hardening & deployment configuration
 # socal

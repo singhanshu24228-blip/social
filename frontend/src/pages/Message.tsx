@@ -578,7 +578,8 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
         try {
 
-          const sres = await api.get(`/status/nearby?lat=${lat}&lng=${lng}`);
+          // fetch feed (statuses from people the user follows + self)
+          const sres = await api.get(`/status/feed`);
           const fetchedStatuses = sres.data.statuses || [];
           setStatuses(fetchedStatuses);
         } catch (err) {
