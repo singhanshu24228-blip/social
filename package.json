@@ -1,0 +1,22 @@
+{
+  "name": "contact-local",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "render:build": "node scripts/build.mjs",
+    "start": "npm --prefix backe start",
+    "dev": "npm --prefix backe run dev",
+    "build:frontend": "npm --prefix frontend run build",
+    "build:all": "npm run build && npm run build:frontend"
+  },
+  "dependencies": {
+    "date-fns": "^4.1.0",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
+    "mongoose": "^9.1.2"
+  },
+  "devDependencies": {
+    "@types/helmet": "^0.0.48",
+    "tsx": "^4.21.0"
+  }
+}

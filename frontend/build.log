@@ -1,0 +1,29 @@
+
+> contact-local-frontend@0.1.0 build
+> vite build
+
+[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+transforming...
+[32mΓ£ô[39m 19 modules transformed.
+x Build failed in 1.02s
+error during build:
+[vite:esbuild] Transform failed with 1 error:
+C:/projectss/local/frontend/src/pages/Message.tsx:2314:1: ERROR: Unexpected end of file
+file: C:/projectss/local/frontend/src/pages/Message.tsx:2314:1
+
+Unexpected end of file
+2312|      </div>
+2313|    );
+2314|  }
+   |   ^
+
+    at failureErrorWithLog (C:\projectss\local\frontend\node_modules\esbuild\lib\main.js:1472:15)
+    at C:\projectss\local\frontend\node_modules\esbuild\lib\main.js:755:50
+    at responseCallbacks.<computed> (C:\projectss\local\frontend\node_modules\esbuild\lib\main.js:622:9)
+    at handleIncomingPacket (C:\projectss\local\frontend\node_modules\esbuild\lib\main.js:677:12)
+    at Socket.readFromStdout (C:\projectss\local\frontend\node_modules\esbuild\lib\main.js:600:7)
+    at Socket.emit (node:events:519:28)
+    at addChunk (node:internal/streams/readable:561:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+    at Readable.push (node:internal/streams/readable:392:5)
+    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
