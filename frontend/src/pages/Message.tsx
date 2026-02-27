@@ -54,9 +54,9 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   const openFile = () => { setAttachOpen(false); fileInputRef.current?.click(); };
 
   const getRandomOnlineUser = () => {
-    if (!nearbyUsers || nearbyUsers.length === 0) return null;
+    if (!randomUsers || randomUsers.length === 0) return null;
     
-    const onlineUsers = nearbyUsers.filter(u => u.isOnline && String(u._id || u.id) !== String(me?.id));
+    const onlineUsers = randomUsers.filter(u => u.isOnline && String(u._id || u.id) !== String(me?.id));
     if (onlineUsers.length === 0) return null;
     
     const availableUsers = onlineUsers.filter(u => !usedRandomUsers.has(String(u._id || u.id)));
@@ -171,6 +171,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   const [selectedFileName, setSelectedFileName] = useState('');
   const [isUploadingStatusMedia, setIsUploadingStatusMedia] = useState(false);
   const [nearbyUsers, setNearbyUsers] = useState<any[]>([]);
+  const [randomUsers, setRandomUsers] = useState<any[]>([]);
   const [recentChats, setRecentChats] = useState<any[]>([]);
 
   const [msg, setMsg] = useState('');
@@ -589,6 +590,12 @@ export default function Message({ groupName }: { groupName?: string | null }) {
         try {
           const ures = await api.get(`/users/nearby?lat=${lat}&lng=${lng}`);
           setNearbyUsers(ures.data.users || []);
+        } catch (err) {
+        }
+
+        try {
+          const rres = await api.get(`/users/random`);
+          setRandomUsers(rres.data.users || []);
         } catch (err) {
         }
 

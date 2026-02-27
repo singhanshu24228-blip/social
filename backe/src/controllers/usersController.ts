@@ -104,6 +104,43 @@ export const getNearbyUsers = async (req: Request, res: Response) => {
   }
 };
 
+export const getRandomUsers = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?._id.toString();
+    // Get random online users globally
+    const results = await User.aggregate([
+      {
+        $match: {
+          isOnline: true,
+          _id: { $ne: userId ? new (require('mongodb')).ObjectId(userId) : null }
+        }
+      },
+      {
+        $sample: { size: 50 }
+      },
+      {
+        $project: {
+          password: 0,
+          location: 0,
+        },
+      },
+    ]);
+
+    const users = results.map((u: any) => ({
+      id: u._id,
+      username: u.username,
+      name: u.name,
+      isOnline: u.isOnline,
+      createdAt: u.createdAt,
+    }));
+
+    res.json({ users });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
 export const checkUsername = async (req: Request, res: Response) => {
   try {
     const { username, lat, lng } = req.query;
