@@ -38,7 +38,7 @@ export default function Login() {
     <div>
       <h2 className="text-lg font-semibold">Login</h2>
       <input placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full p-2 border rounded mb-2 text-black mt-2 shadow-lg shadow-black/100" />
-      <input placeholder="Password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="w-full p-2 border rounded mb-2 text-black mt-2" />
+      <input placeholder="Password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="w-full p-2 border rounded mb-2 text-black mt-2 shadow-lg shadow-black/100" />
       <button onClick={handleLogin} className="px-4 py-2 bg-green-600 text-white rounded mt-2">Login</button>
       {msg && <p className="mt-2 text-sm">{msg}</p>}
     </div>
