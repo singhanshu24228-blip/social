@@ -11,6 +11,16 @@ import { isCloudinaryConfigured, uploadFileToCloudinary } from '../utils/cloudin
 const isProd = process.env.NODE_ENV === 'production';
 const debugPosts = !isProd && process.env.DEBUG_POSTS?.trim() === 'true';
 
+const toAbsoluteAssetUrl = (baseUrl: string, url?: string) => {
+  if (!url) return url;
+  const s = String(url);
+  if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('data:') || s.startsWith('blob:')) {
+    return s;
+  }
+  if (s.startsWith('/')) return `${baseUrl}${s}`;
+  return `${baseUrl}/${s}`;
+};
+
 export const createPost = async (req: Request, res: Response) => {
   try {
     const { content, anonymous } = req.body;
@@ -52,16 +62,16 @@ export const createPost = async (req: Request, res: Response) => {
           }
           // cleanup disk copy
           try { fs.unlinkSync(filePath); } catch (e) { console.warn('cloud cleanup failed', e); }
-        } catch (e) {
-          console.error('cloudinary image upload failed', e);
-          imageUrl = `/uploads/${file.filename}`;
+          } catch (e) {
+            console.error('cloudinary image upload failed', e);
+            imageUrl = `${baseUrl}/uploads/${file.filename}`;
+          }
+        } else {
+          imageUrl = `${baseUrl}/uploads/${file.filename}`;
         }
-      } else {
-        imageUrl = `/uploads/${file.filename}`;
-      }
-    } else if (req.body?.imageUrl) {
-      imageUrl = (() => {
-        let s = req.body.imageUrl as string;
+      } else if (req.body?.imageUrl) {
+        imageUrl = (() => {
+          let s = req.body.imageUrl as string;
         if (!s.startsWith('http')) {
           if (!s.startsWith('/')) {
             s = '/' + s;
@@ -86,10 +96,10 @@ export const createPost = async (req: Request, res: Response) => {
           try { fs.unlinkSync(filePath); } catch (e) { console.warn('cloud cleanup failed', e); }
         } catch (e) {
           console.error('cloudinary song upload failed', e);
-          songUrl = `/uploads/${sfile.filename}`;
+          songUrl = `${baseUrl}/uploads/${sfile.filename}`;
         }
       } else {
-        songUrl = `/uploads/${sfile.filename}`;
+        songUrl = `${baseUrl}/uploads/${sfile.filename}`;
       }
     } else if (req.body?.songUrl) {
       let s = req.body.songUrl as string;
@@ -159,8 +169,15 @@ export const getPosts = async (req: Request, res: Response) => {
       .allowDiskUse(true);
 
     // Calculate scores and sort by score (highest first)
+    // Build absolute base URL so clients on a different origin can still render stored relative asset paths.
+    const protocol = req.get('x-forwarded-proto') || req.protocol || 'http';
+    const host = req.get('host');
+    const baseUrl = `${protocol}://${host}`;
+
     const postsWithScores = posts.map(post => {
       const postObj = post.toObject() as IPost;
+      (postObj as any).imageUrl = toAbsoluteAssetUrl(baseUrl, (postObj as any).imageUrl);
+      (postObj as any).songUrl = toAbsoluteAssetUrl(baseUrl, (postObj as any).songUrl);
       // Convert Maps to plain objects for JSON response
       if (post.reactions) {
         (postObj as any).reactions = Object.fromEntries(post.reactions.entries());
@@ -199,7 +216,13 @@ export const getPostById = async (req: Request, res: Response) => {
       return res.status(404).json({ message: 'Post not found' });
     }
 
-    res.json(post);
+    const protocol = req.get('x-forwarded-proto') || req.protocol || 'http';
+    const host = req.get('host');
+    const baseUrl = `${protocol}://${host}`;
+    const postObj: any = post.toObject();
+    postObj.imageUrl = toAbsoluteAssetUrl(baseUrl, postObj.imageUrl);
+    postObj.songUrl = toAbsoluteAssetUrl(baseUrl, postObj.songUrl);
+    res.json(postObj);
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }
@@ -345,8 +368,14 @@ export const getPostsByUsername = async (req: Request, res: Response) => {
       .allowDiskUse(true);
 
     // Calculate scores and sort by score (highest first)
+    const protocol = req.get('x-forwarded-proto') || req.protocol || 'http';
+    const host = req.get('host');
+    const baseUrl = `${protocol}://${host}`;
+
     const postsWithScores = posts.map(post => {
       const postObj = post.toObject();
+      (postObj as any).imageUrl = toAbsoluteAssetUrl(baseUrl, (postObj as any).imageUrl);
+      (postObj as any).songUrl = toAbsoluteAssetUrl(baseUrl, (postObj as any).songUrl);
       // Convert Maps to plain objects for JSON response
       if (post.reactions) {
         (postObj as any).reactions = Object.fromEntries(post.reactions.entries());
