@@ -6,6 +6,7 @@ import { createNotification } from './notificationController.js';
 import { calculateScore } from '../utils/yourVoiceAI.js';
 import fs from 'fs';
 import { uploadsDir, frontendPublicDir } from '../utils/paths.js';
+import { isCloudinaryConfigured, uploadFileToCloudinary } from '../utils/cloudinary.js';
 
 const isProd = process.env.NODE_ENV === 'production';
 const debugPosts = !isProd && process.env.DEBUG_POSTS?.trim() === 'true';
@@ -26,41 +27,69 @@ export const createPost = async (req: Request, res: Response) => {
     const baseUrl = `${protocol}://${host}`;
     if (debugPosts) console.log('Backend createPost - computed baseUrl:', baseUrl);
 
-    const imageUrl = (req as any).files?.image
-      ? `/uploads/${(req as any).files.image[0].filename}`
-      : req.body?.imageUrl
-      ? (() => {
-          let s = req.body.imageUrl as string;
-          if (!s.startsWith('http')) {
-            if (!s.startsWith('/')) {
-              s = '/' + s;
-            }
-            return s;
-          }
-          return s;
-        })()
-      : undefined;
-
+    // compute image URL; handle both upload and provided URL
+    let imageUrl: string | undefined;
     if ((req as any).files?.image) {
+      const file = (req as any).files.image[0];
       if (debugPosts) {
-        console.log(
-          `File uploaded with name: ${(req as any).files.image[0].filename}, size: ${(req as any).files.image[0].size}`
-        );
+        console.log(`File uploaded with name: ${file.filename}, size: ${file.size}`);
       }
-      // Verify file exists after multer saves it
-      const filePath = path.join(uploadsDir, (req as any).files.image[0].filename);
+      const filePath = path.join(uploadsDir, file.filename);
+      // verify file on disk
       if (fs.existsSync(filePath)) {
         const fileSize = fs.statSync(filePath).size;
         if (debugPosts) console.log(`File verified on disk: ${filePath}, actual size: ${fileSize}`);
       } else {
         console.error(`File NOT found on disk after upload: ${filePath}`);
       }
+
+      if (isCloudinaryConfigured) {
+        try {
+          const result: any = await uploadFileToCloudinary(filePath, { publicId: file.filename });
+          if (result.secure_url) {
+            imageUrl = result.secure_url;
+          }
+          // cleanup disk copy
+          try { fs.unlinkSync(filePath); } catch (e) { console.warn('cloud cleanup failed', e); }
+        } catch (e) {
+          console.error('cloudinary image upload failed', e);
+          imageUrl = `/uploads/${file.filename}`;
+        }
+      } else {
+        imageUrl = `/uploads/${file.filename}`;
+      }
+    } else if (req.body?.imageUrl) {
+      imageUrl = (() => {
+        let s = req.body.imageUrl as string;
+        if (!s.startsWith('http')) {
+          if (!s.startsWith('/')) {
+            s = '/' + s;
+          }
+          return s;
+        }
+        return s;
+      })();
     }
 
     // allow using an uploaded file or an existing song URL passed in the body
     let songUrl: string | undefined;
     if ((req as any).files?.song) {
-      songUrl = `/uploads/${(req as any).files.song[0].filename}`;
+      const sfile = (req as any).files.song[0];
+      if (isCloudinaryConfigured) {
+        const filePath = path.join(uploadsDir, sfile.filename);
+        try {
+          const result: any = await uploadFileToCloudinary(filePath, { publicId: sfile.filename });
+          if (result.secure_url) {
+            songUrl = result.secure_url;
+          }
+          try { fs.unlinkSync(filePath); } catch (e) { console.warn('cloud cleanup failed', e); }
+        } catch (e) {
+          console.error('cloudinary song upload failed', e);
+          songUrl = `/uploads/${sfile.filename}`;
+        }
+      } else {
+        songUrl = `/uploads/${sfile.filename}`;
+      }
     } else if (req.body?.songUrl) {
       let s = req.body.songUrl as string;
       // If passed a relative or incomplete path, keep as relative

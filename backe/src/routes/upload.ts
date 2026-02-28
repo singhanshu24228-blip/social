@@ -9,6 +9,8 @@ import { validateUploadedFile } from '../utils/fileValidation.js';
 
 const router = Router();
 
+import { isCloudinaryConfigured, uploadFileToCloudinary } from '../utils/cloudinary.js';
+
 const extensionFromMime = (mimetype: string): string => {
   const m = (mimetype || '').toLowerCase();
   const map: Record<string, string> = {
@@ -127,7 +129,7 @@ router.post(
       next();
     });
   },
-  (req, res) => {
+  async (req, res) => {
   try {
     if (!req.file) {
       console.log('[upload] No file provided in request');
@@ -166,7 +168,27 @@ router.post(
     // Respect proxy headers when constructing absolute URLs
     const protocol = (req.get('x-forwarded-proto') as string) || req.protocol || 'http';
     const host = req.get('host');
-    const fileUrl = `${protocol}://${host}/uploads/${req.file.filename}`;
+    let fileUrl = `${protocol}://${host}/uploads/${req.file.filename}`;
+
+    // if cloudinary is configured, upload the saved file and use its URL
+    if (isCloudinaryConfigured) {
+      try {
+        const result = await uploadFileToCloudinary(req.file.path, {
+          publicId: req.file.filename,
+        });
+        if (result.secure_url) {
+          fileUrl = result.secure_url;
+        }
+        // cleanup the local disk copy
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch (e) {
+          console.warn('[upload] failed to delete local copy after cloud upload', e);
+        }
+      } catch (e) {
+        console.error('[upload] cloudinary upload error', e);
+      }
+    }
 
     console.log('[upload] File validated and stored successfully:', {
       filename: req.file.filename,

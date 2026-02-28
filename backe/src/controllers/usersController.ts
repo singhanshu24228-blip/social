@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
 import User from '../models/User.js';
 import Follower from '../models/Follower.js';
 import { AuthRequest } from '../middleware/auth.js';
@@ -106,13 +107,18 @@ export const getNearbyUsers = async (req: Request, res: Response) => {
 
 export const getRandomUsers = async (req: Request, res: Response) => {
   try {
-    const userId = (req as AuthRequest).user?._id.toString();
+    const userId = (req as AuthRequest).user?._id?.toString();
+    const excludeId =
+      userId && mongoose.isValidObjectId(userId) ? new mongoose.Types.ObjectId(userId) : undefined;
+
+    const matchStage: Record<string, any> = { isOnline: true };
+    if (excludeId) matchStage._id = { $ne: excludeId };
+
     // Get random online users globally
     const results = await User.aggregate([
       {
         $match: {
-          isOnline: true,
-          _id: { $ne: userId ? new (require('mongodb')).ObjectId(userId) : null }
+          ...matchStage,
         }
       },
       {

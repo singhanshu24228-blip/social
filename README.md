@@ -27,6 +27,12 @@ Environment variables:
 - `JWT_SECRET`
 - `CLIENT_URL` (optional if serving frontend from the same origin; set it if your frontend is hosted on a different domain)
 
+**Optional cloud storage variables (for Cloudinary uploads):**
+- `CLOUDINARY_CLOUD_NAME`
+- `CLOUDINARY_API_KEY` (e.g. 731627638595454)
+- `CLOUDINARY_API_SECRET` (e.g. eMcf9B1kB3D32iCPqlf5FadOziI)
+
+
 Optional auth env vars:
 - `EXPOSE_ACCESS_TOKEN=true` — include an `accessToken` in `/api/auth/login|signup|refresh` responses so the frontend can use `Authorization: Bearer ...` when cookies/CSRF aren't viable across domains.
 

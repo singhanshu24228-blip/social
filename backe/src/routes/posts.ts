@@ -111,7 +111,7 @@ router.post(
       next();
     });
   },
-  (req: Request, res: Response, _next: NextFunction) => {
+  async (req: Request, res: Response, _next: NextFunction) => {
   try {
     // Validate uploaded files
     if ((req as any).files) {
@@ -132,7 +132,7 @@ router.post(
       }
     }
     // Proceed to createPost if validation passes
-    createPost(req, res);
+    return await createPost(req, res);
   } catch (error) {
     console.error('File validation error:', error);
     res.status(500).json({ message: 'File validation failed' });

@@ -61,28 +61,36 @@ describe('upload smoke', () => {
     }
     const json: any = await res.json();
     expect(json?.success).toBe(true);
-    expect(typeof json?.filename).toBe('string');
+    // response may include either `filename` (local disk) or `url` (cloud storage)
+    expect(
+      typeof json?.filename === 'string' || typeof json?.url === 'string'
+    ).toBe(true);
 
-    const savedPath = path.join(uploadsDir, json.filename);
-    expect(fs.existsSync(savedPath)).toBe(true);
+    let savedPath: string | undefined;
+    if (json.filename) {
+      savedPath = path.join(uploadsDir, json.filename);
+      expect(fs.existsSync(savedPath)).toBe(true);
+    }
 
     await handle.close();
 
-    // Windows can keep file handles open briefly; retry a few times.
-    let lastErr: any;
-    for (let i = 0; i < 20; i++) {
-      try {
-        fs.unlinkSync(savedPath);
-        lastErr = null;
-        break;
-      } catch (e) {
-        lastErr = e;
-        await new Promise((r) => setTimeout(r, 100));
+    if (savedPath) {
+      // Windows can keep file handles open briefly; retry a few times.
+      let lastErr: any;
+      for (let i = 0; i < 20; i++) {
+        try {
+          fs.unlinkSync(savedPath);
+          lastErr = null;
+          break;
+        } catch (e) {
+          lastErr = e;
+          await new Promise((r) => setTimeout(r, 100));
+        }
       }
-    }
-    if (lastErr) {
-      // Best-effort cleanup; don't fail the smoke test on Windows file locking.
-      console.warn('Failed to delete uploaded test file:', savedPath, lastErr);
+      if (lastErr) {
+        // Best-effort cleanup; don't fail the smoke test on Windows file locking.
+        console.warn('Failed to delete uploaded test file:', savedPath, lastErr);
+      }
     }
   });
 });
