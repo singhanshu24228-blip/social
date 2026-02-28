@@ -60,7 +60,21 @@ export function createApp() {
   } else if (isProd) {
     app.set('trust proxy', 1);
   }
-  app.use(helmet());
+  
+  // Configure Helmet with CSP to allow external image sources (Cloudinary, etc.)
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'https:', 'blob:'],
+        mediaSrc: ["'self'", 'https:', 'blob:'],
+        connectSrc: ["'self'", 'https:', 'ws:', 'wss:'],
+        fontSrc: ["'self'", 'data:'],
+      },
+    },
+  }));
 
   app.use(
     rateLimit({

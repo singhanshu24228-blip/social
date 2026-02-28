@@ -48,6 +48,7 @@ export const createPost = async (req: Request, res: Response) => {
           const result: any = await uploadFileToCloudinary(filePath, { publicId: file.filename });
           if (result.secure_url) {
             imageUrl = result.secure_url;
+            if (debugPosts) console.log('Cloudinary image uploaded:', { originalFile: file.filename, cloudinaryUrl: imageUrl });
           }
           // cleanup disk copy
           try { fs.unlinkSync(filePath); } catch (e) { console.warn('cloud cleanup failed', e); }

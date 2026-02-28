@@ -181,7 +181,11 @@ const isAnonymous = ( post as any).anonymous === true || ( post as any).anonymou
 
       {post.imageUrl && (
         <div className="relative mb-3">
-          {post.imageUrl.match(/\.(mp4|mov|avi|webm|ogv)$/i) ? (
+          {(() => {
+            // Better video detection that handles full URLs with query parameters
+            const urlPath = post.imageUrl.split('?')[0].toLowerCase();
+            return /\.(mp4|mov|avi|webm|ogv)$/i.test(urlPath);
+          })() ? (
             <video
               src={post.imageUrl.startsWith('http') ? post.imageUrl : `${getUploadBaseURL()}${post.imageUrl}`}
               controls
