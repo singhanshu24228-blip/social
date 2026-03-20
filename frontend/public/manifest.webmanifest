@@ -1,6 +1,6 @@
 {
-  "name": "Contact Local",
-  "short_name": "ContactLocal",
+  "name": "Sociovio",
+  "short_name": "Sociovio",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
