@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { formatDistanceToNow } from "date-fns";
-import api, { getUploadBaseURL, uploadFile } from '../services/api';
+import api, { getUploadBaseURL, uploadFile, requestAccountDeletion, deleteAccount as apiDeleteAccount, requestUsernameChange, changeUsername as apiChangeUsername, resolveMediaUrl } from '../services/api';
 import { connectSocket, getSocket, disconnectSocket } from '../services/socket';
 import NotificationPanel from '../components/NotificationPanel';
 import NightInterface from '../components/NightInterface';
@@ -9,6 +9,7 @@ import { getTimeUntilNightMode, enterNightMode } from '../services/api';
 
 export default function Message({ groupName }: { groupName?: string | null }) {
   const isNightMode = window.location.pathname === '/message/night';
+  const isPrivateChatPage = window.location.pathname.startsWith('/message/chat');
   let me: any = null;
   try {
     me = JSON.parse(localStorage.getItem('user') || 'null');
@@ -24,8 +25,6 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [activePrivateUser, setActivePrivateUser] = useState<any | null>(null);
   const [text, setText] = useState('');
-  const [isVoiceMode, setIsVoiceMode] = useState(false);
-  const [voiceGender, setVoiceGender] = useState<'male' | 'female'>('male');
   const [messages, setMessages] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [messageMediaUrl, setMessageMediaUrl] = useState('');
@@ -37,6 +36,21 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   const [attachOpen, setAttachOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const wallpaperInputRef = useRef<HTMLInputElement | null>(null);
+
+  const getUserKey = (u: any) => String(u?._id || u?.id || u?.userId || u?.username || '');
+
+  const dedupeUsers = (list: any[]) => {
+    const seen = new Set<string>();
+    const out: any[] = [];
+    for (const u of list || []) {
+      const k = getUserKey(u);
+      if (!k) continue;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(u);
+    }
+    return out;
+  };
 
   const isUnsupportedImageFile = (f: File) => {
     const t = String((f as any)?.type || '').toLowerCase();
@@ -53,20 +67,21 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
   const openFile = () => { setAttachOpen(false); fileInputRef.current?.click(); };
 
-  const getRandomOnlineUser = () => {
-    if (!randomUsers || randomUsers.length === 0) return null;
-    
-    const onlineUsers = randomUsers.filter(u => u.isOnline && String(u._id || u.id) !== String(me?.id));
+  const pickRandomOnlineUser = (list: any[]) => {
+    if (!list || list.length === 0) return null;
+
+    const onlineUsers = list.filter((u) => u?.isOnline && String(u?._id || u?.id) !== String(me?.id));
     if (onlineUsers.length === 0) return null;
-    
-    const availableUsers = onlineUsers.filter(u => !usedRandomUsers.has(String(u._id || u.id)));
+
+    const availableUsers = onlineUsers.filter((u) => !usedRandomUsers.has(String(u?._id || u?.id)));
     const usersToSelect = availableUsers.length > 0 ? availableUsers : onlineUsers;
-    
     if (usersToSelect.length === 0) return null;
-    
+
     const randomIndex = Math.floor(Math.random() * usersToSelect.length);
     return usersToSelect[randomIndex];
   };
+
+  const getRandomOnlineUser = () => pickRandomOnlineUser(randomUsers);
 
   const handleSelectStatus = async (s: any) => {
     try {
@@ -112,13 +127,22 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     }
   };
 
-  const startRandomChat = () => {
-    const randomUser = getRandomOnlineUser();
-    if (randomUser) {
-      setCurrentRandomUser(randomUser);
-      setUsedRandomUsers(new Set(usedRandomUsers));
-    } else {
+  const startRandomChat = async () => {
+    try {
+      const rres = await api.get(`/users/random`);
+      const fresh = rres.data?.users || [];
+      setRandomUsers(fresh);
+
+      const randomUser = pickRandomOnlineUser(fresh);
+      if (randomUser) {
+        setCurrentRandomUser(randomUser);
+        setUsedRandomUsers(new Set(usedRandomUsers));
+        return;
+      }
+
       setMsg('No online users available');
+    } catch (err: any) {
+      setMsg(err?.response?.data?.message || 'Failed to load random users');
     }
   };
 
@@ -132,8 +156,23 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       if (nextUser) {
         setCurrentRandomUser(nextUser);
       } else {
-        setCurrentRandomUser(null);
-        setMsg('No more online users available. Try again later!');
+        // Try refreshing the random pool once before giving up.
+        (async () => {
+          try {
+            const rres = await api.get(`/users/random`);
+            const fresh = rres.data?.users || [];
+            setRandomUsers(fresh);
+            const picked = pickRandomOnlineUser(fresh);
+            if (picked) {
+              setCurrentRandomUser(picked);
+              return;
+            }
+          } catch (err: any) {
+            // ignore, we'll show the generic message below
+          }
+          setCurrentRandomUser(null);
+          setMsg('No more online users available. Try again later!');
+        })();
       }
     }
   };
@@ -178,7 +217,30 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [showWallpaperPicker, setShowWallpaperPicker] = useState(false);
-  const wallpapers = ['wallpaper1.jpg', 'wallpaper2.jpg', 'wallpaper3.jpg', 'wallpaper4.jpg', 'wallpaper5.jpg'];
+
+  // handlers
+  const sendDeleteOtp = async () => {
+    try {
+      setDeleteMsg('');
+      await requestAccountDeletion();
+      setDeleteMsg('OTP sent to your email');
+    } catch (err: any) {
+      setDeleteMsg(err?.response?.data?.message || err?.message || 'Error');
+    }
+  };
+
+  const doDeleteAccount = async () => {
+    try {
+      setDeleteMsg('');
+      await apiDeleteAccount(deleteForm.password, deleteForm.otp);
+      // clear session and redirect
+      localStorage.removeItem('user');
+      window.location.pathname = '/';
+    } catch (err: any) {
+      setDeleteMsg(err?.response?.data?.message || err?.message || 'Error');
+    }
+  };
+  const wallpapers = ['wallpaper1.jpg', 'wallpaper2.jpg', 'wallpaper3.jpg', 'wallpaper4.jpg', 'wallpaper5.jpg', 'wallpaper6.jpg', 'wallpaper7.jpg', 'wallpaper8.jpg', 'wallpaper9.jpg', 'wallpaper10.jpg'];
   const [wallpaperUrl, setWallpaperUrl] = useState<string | null>(null);
   const [currentChatWallpaper, setCurrentChatWallpaper] = useState<string | null>(null);
   const [reportDialogOpen, setReportDialogOpen] = useState(false);
@@ -193,7 +255,54 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   >(null);
   const [reportReason, setReportReason] = useState('');
   const [reportSubmitting, setReportSubmitting] = useState(false);
+
+  // account deletion dialog state
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteForm, setDeleteForm] = useState({ password: '', otp: '' });
+  const [deleteMsg, setDeleteMsg] = useState('');
+
+  // blocked users dialog state
+  const [showBlockedUsersDialog, setShowBlockedUsersDialog] = useState(false);
+  const [blockedUsersList, setBlockedUsersList] = useState<any[]>([]);
+  const [blockedUsersLoading, setBlockedUsersLoading] = useState(false);
+  const [blockedUsersError, setBlockedUsersError] = useState('');
+
+  // username change dialog state
+  const [showUsernameDialog, setShowUsernameDialog] = useState(false);
+  const [usernameForm, setUsernameForm] = useState({ newUsername: '', password: '', otp: '' });
+  const [usernameMsg, setUsernameMsg] = useState('');
+
   const [showTextColorPicker, setShowTextColorPicker] = useState(false);
+
+  // handlers for username change
+  const sendUsernameOtp = async () => {
+    try {
+      setUsernameMsg('');
+      await requestUsernameChange(usernameForm.newUsername);
+      setUsernameMsg('OTP sent to your email');
+    } catch (err: any) {
+      setUsernameMsg(err?.response?.data?.message || err?.message || 'Error');
+    }
+  };
+
+  const doChangeUsername = async () => {
+    try {
+      setUsernameMsg('');
+      await apiChangeUsername(usernameForm.password, usernameForm.otp);
+      // clear local user info to avoid stale username
+      const userObj = localStorage.getItem('user');
+      if (userObj) {
+        try {
+          const u = JSON.parse(userObj);
+          u.username = usernameForm.newUsername;
+          localStorage.setItem('user', JSON.stringify(u));
+        } catch {}
+      }
+      window.location.reload();
+    } catch (err: any) {
+      setUsernameMsg(err?.response?.data?.message || err?.message || 'Error');
+    }
+  };
   const textColors = ['red', 'white', 'black', 'green', 'blue', 'orange'];
   const [textColor, setTextColor] = useState<string>('black');
   const [showTextSizePicker, setShowTextSizePicker] = useState(false);
@@ -204,21 +313,119 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   const [currentRandomUser, setCurrentRandomUser] = useState<any>(null);
   const [usedRandomUsers, setUsedRandomUsers] = useState<Set<string>>(new Set());
   const [followedUsers, setFollowedUsers] = useState<Set<string>>(new Set());
+  const [blockedUsers, setBlockedUsers] = useState<Set<string>>(new Set());
   const [loadingFollows, setLoadingFollows] = useState<Record<string, boolean>>({});
   const [showFollowersFollowingDropdown, setShowFollowersFollowingDropdown] = useState(false);
   const [followers, setFollowers] = useState<any[]>([]);
   const [following, setFollowing] = useState<any[]>([]);
   const [loadingFollowersList, setLoadingFollowersList] = useState(false);
   const [selectedFollowersList, setSelectedFollowersList] = useState<'followers' | 'following' | null>(null);
+  const [zoomedProfilePicSrc, setZoomedProfilePicSrc] = useState<string>('');
+  const [zoomedPostMedia, setZoomedPostMedia] = useState<null | { src: string; kind: 'image' | 'video' }>(null);
+  const [showMyProfileModal, setShowMyProfileModal] = useState(false);
+  const [myProfile, setMyProfile] = useState<any>(null);
+  const [myBioDraft, setMyBioDraft] = useState('');
+  const [myProfileLoading, setMyProfileLoading] = useState(false);
+  const [myProfileSavingBio, setMyProfileSavingBio] = useState(false);
+  const [myProfileError, setMyProfileError] = useState('');
+  const [isUploadingMyProfilePic, setIsUploadingMyProfilePic] = useState(false);
+  const [myProfilePicError, setMyProfilePicError] = useState('');
+  const myProfilePicInputRef = useRef<HTMLInputElement | null>(null);
+  const [unlockDialog, setUnlockDialog] = useState<null | {
+    postId: string;
+    orderId: string;
+    amount: number;
+    key: string;
+    upiVpa?: string;
+    payeeName?: string;
+  }>(null);
+  const [unlockInitiating, setUnlockInitiating] = useState(false);
+
+  useEffect(() => {
+    if (!zoomedProfilePicSrc && !zoomedPostMedia && !showMyProfileModal && !unlockDialog) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setZoomedProfilePicSrc('');
+        setZoomedPostMedia(null);
+        setShowMyProfileModal(false);
+        setUnlockDialog(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [zoomedProfilePicSrc, zoomedPostMedia, showMyProfileModal, unlockDialog]);
+
+  const openMyProfileModal = async () => {
+    if (!myId) {
+      setMsg('Please log in');
+      return;
+    }
+    setShowMyProfileModal(true);
+    setMyProfileError('');
+    setMyProfilePicError('');
+    setMyProfileLoading(true);
+    try {
+      const res = await api.get(`/users/profile/${encodeURIComponent(myId)}`);
+      const u = res.data?.user;
+      setMyProfile(u);
+      setMyBioDraft(String(u?.about || ''));
+      // Preload followers/following so counts render quickly
+      if (!loadingFollowersList && followers.length === 0 && following.length === 0) {
+        loadFollowersAndFollowing();
+      }
+    } catch (err: any) {
+      setMyProfileError(err?.response?.data?.message || 'Failed to load profile');
+    } finally {
+      setMyProfileLoading(false);
+    }
+  };
+
+  const saveMyBio = async () => {
+    if (!myId) return;
+    setMyProfileSavingBio(true);
+    setMyProfileError('');
+    try {
+      const res = await api.put('/users/bio', { about: myBioDraft });
+      const u = res.data?.user;
+      if (u) {
+        setMyProfile(u);
+        setMyBioDraft(String(u.about || ''));
+      }
+      try {
+        const stored = JSON.parse(localStorage.getItem('user') || 'null');
+        if (stored) {
+          stored.about = u?.about ?? myBioDraft.trim();
+          localStorage.setItem('user', JSON.stringify(stored));
+        }
+      } catch {}
+      setMsg('Bio updated');
+    } catch (err: any) {
+      setMyProfileError(err?.response?.data?.message || 'Failed to update bio');
+    } finally {
+      setMyProfileSavingBio(false);
+    }
+  };
+
+  const setMyPostsView = (nextViewingOwnPosts: boolean) => {
+    setViewingOwnPosts(nextViewingOwnPosts);
+    if (!nextViewingOwnPosts) {
+      setPostSearchOpen(false);
+      setPostSearchQuery('');
+      setPostSearchResults([]);
+      setSelectedPostUsername(null);
+      setSelectedUserProfile(null);
+      setShowFollowersFollowingDropdown(false);
+      setSelectedFollowersList(null);
+      return;
+    }
+    setShowFollowersFollowingDropdown(true);
+    loadFollowersAndFollowing();
+  };
 
   const resolveMediaUrl = (u: any) => {
     const s = String(u || '');
     if (!s) return '';
     if (s.startsWith('data:') || s.startsWith('blob:')) return s;
-
-    // If the backend (or a proxy) returned an absolute /uploads URL with the *wrong origin*
-    // (e.g. frontend origin), rewrite it to the upload base origin derived from VITE_API_URL.
-    // This prevents images loading as HTML (SPA fallback) which appears as "corrupted" in <img>.
     if (s.startsWith('http://') || s.startsWith('https://')) {
       try {
         const parsed = new URL(s);
@@ -239,8 +446,10 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     if (s.startsWith('/uploads/')) return `${getUploadBaseURL()}${s}`;
     if (s.startsWith('uploads/')) return `${getUploadBaseURL()}/${s}`;
 
-    // Back-compat: sometimes older data stores just the filename (no /uploads prefix)
-    // e.g. "image-123.png". Treat it as an uploads asset.
+    // Handle song files that are in public folder (e.g., /Aakh%20talabani.m4a)
+    if (s.startsWith('/') && /\.(mp3|m4a|wav|ogg|aac|flac)$/i.test(s)) {
+      return s; // Return as-is for public folder assets
+    }
     if (!s.includes('/') && /\.(png|jpe?g|gif|webp|mp4|webm|ogg|mov|m4v)$/i.test(s)) {
       const base = getUploadBaseURL();
       return base ? `${base}/uploads/${s}` : `/uploads/${s}`;
@@ -360,22 +569,43 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     loadFollowedUsers();
   }, []);
 
+  // Load blocked users on mount
+  useEffect(() => {
+    const loadBlockedUsers = async () => {
+      try {
+        const res = await api.get('/users/blocked');
+        const ids = (res.data?.blocked || []).map((u: any) => String(u?._id || u?.id || '')).filter(Boolean);
+        setBlockedUsers(new Set(ids));
+      } catch (err) {
+        console.error('Failed to load blocked users:', err);
+      }
+    };
+
+    loadBlockedUsers();
+  }, []);
+
   // Posts state
   const [posts, setPosts] = useState<any[]>([]);
   const [postContent, setPostContent] = useState('');
+  const [isPostComposerOpen, setIsPostComposerOpen] = useState(false);
   const [postImage, setPostImage] = useState<File | null>(null);
   const [postSong, setPostSong] = useState<string>('');
   const [postAnonymous, setPostAnonymous] = useState(false);
+  const [postPrivate, setPostPrivate] = useState(false);
+  const [postIsLocked, setPostIsLocked] = useState(false);
+  const [postLockedPrice, setPostLockedPrice] = useState<number>(0);
   const [postLoading, setPostLoading] = useState(false);
   const [postSearchQuery, setPostSearchQuery] = useState('');
   const [postSearchResults, setPostSearchResults] = useState<any[]>([]);
   const [postIsSearching, setPostIsSearching] = useState(false);
   const [selectedPostUsername, setSelectedPostUsername] = useState<string | null>(null);
+  const [selectedUserProfile, setSelectedUserProfile] = useState<any>(null);
   const [postSearchOpen, setPostSearchOpen] = useState(false);
   const [viewingOwnPosts, setViewingOwnPosts] = useState(false);
   const [currentPlayingAudio, setCurrentPlayingAudio] = useState<HTMLAudioElement | null>(null);
   const [privateSongs, setPrivateSongs] = useState<string[]>([]);
   const [postMuted, setPostMuted] = useState<Record<string, boolean>>({});
+  const [floatingEmojis, setFloatingEmojis] = useState<Array<{id: string, emoji: string, postId: string}>>([]);
   // Comment state
   const [showComments, setShowComments] = useState<Record<string, boolean>>({});
   const [commentText, setCommentText] = useState<Record<string, string>>({});
@@ -388,6 +618,33 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     'Runway (2).m4a',
     'Runway.m4a',
   ];
+
+  const postComposerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const postImageInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!isPostComposerOpen) return;
+    const t = window.setTimeout(() => postComposerTextareaRef.current?.focus(), 0);
+    return () => window.clearTimeout(t);
+  }, [isPostComposerOpen]);
+
+  const postImagePreviewUrl = useMemo(() => {
+    if (!postImage) return '';
+    try {
+      return URL.createObjectURL(postImage);
+    } catch {
+      return '';
+    }
+  }, [postImage]);
+
+  useEffect(() => {
+    if (!postImagePreviewUrl) return;
+    return () => {
+      try {
+        URL.revokeObjectURL(postImagePreviewUrl);
+      } catch {}
+    };
+  }, [postImagePreviewUrl]);
   
   const filteredPosts = useMemo(() => {
     if (viewingOwnPosts) {
@@ -400,32 +657,186 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     return posts;
   }, [posts, viewingOwnPosts, selectedPostUsername, postSearchResults, me]);
 
-  const handlePostHover = (post: any, isHovering: boolean) => {
-    const pid = post._id || post.id;
-    if (post.songUrl && !postMuted[pid]) {
-      if (isHovering) {
-        // Stop any currently playing audio
-        if (currentPlayingAudio) {
-          currentPlayingAudio.pause();
-          currentPlayingAudio.currentTime = 0;
-        }
-        // Create and play new audio
-        const audioUrl = resolveMediaUrl(post.songUrl);
-        console.log('Playing audio for post', pid, audioUrl);
-        const audio = new Audio(audioUrl);
-        audio.volume = 0.3; // Set low volume
-        audio.play().catch(err => console.error('Audio play failed:', err));
-        setCurrentPlayingAudio(audio);
-      } else {
-        // Stop audio on mouse leave
-        if (currentPlayingAudio) {
-          currentPlayingAudio.pause();
-          currentPlayingAudio.currentTime = 0;
-          setCurrentPlayingAudio(null);
-        }
-      }
+  // Default infinity logo as SVG data URL
+  const defaultInfinityLogo = useMemo(() => {
+    return `data:image/svg+xml;base64,${btoa(`
+      <svg width="80" height="80" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="40" cy="40" r="35" fill="#f3f4f6" stroke="#3b82f6" stroke-width="2"/>
+        <path d="M25 35c0-5.5 4.5-10 10-10s10 4.5 10 10c0 3.5-1.8 6.6-4.6 8.4l-5.4 3.6c-2.8 1.8-4.6 5-4.6 8.4 0 5.5 4.5 10 10 10s10-4.5 10-10" 
+              stroke="#3b82f6" stroke-width="3" stroke-linecap="round" fill="none"/>
+        <circle cx="35" cy="35" r="2" fill="#3b82f6"/>
+        <circle cx="45" cy="45" r="2" fill="#3b82f6"/>
+      </svg>
+    `)}`;
+  }, []);
+
+  const [audioAutoplayEnabled, setAudioAutoplayEnabled] = useState(false);
+  const [didShowAutoplayHint, setDidShowAutoplayHint] = useState(false);
+  const [visiblePostId, setVisiblePostId] = useState<string>('');
+  const [currentPlayingPostId, setCurrentPlayingPostId] = useState<string>('');
+  const postCardElsRef = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  useEffect(() => {
+    // Most browsers require a user gesture before audio can autoplay.
+    const enable = () => setAudioAutoplayEnabled(true);
+    window.addEventListener('pointerdown', enable, { once: true });
+    window.addEventListener('keydown', enable, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', enable as any);
+      window.removeEventListener('keydown', enable as any);
+    };
+  }, []);
+
+  const registerPostCardEl = (postId: string) => (el: HTMLDivElement | null) => {
+    const pid = String(postId || '');
+    if (!pid) return;
+    const map = postCardElsRef.current;
+    if (el) {
+      el.dataset.postId = pid;
+      map.set(pid, el);
+    } else {
+      map.delete(pid);
     }
   };
+
+  const loadBlockedUsersList = async () => {
+    setBlockedUsersLoading(true);
+    setBlockedUsersError('');
+    try {
+      const res = await api.get('/users/blocked');
+      const list = res.data?.blocked || [];
+      setBlockedUsersList(list);
+      const ids = list.map((u: any) => String(u?._id || u?.id || '')).filter(Boolean);
+      setBlockedUsers(new Set(ids));
+    } catch (err: any) {
+      setBlockedUsersError(err?.response?.data?.message || 'Failed to load blocked users');
+    } finally {
+      setBlockedUsersLoading(false);
+    }
+  };
+
+  const handleMyProfilePictureChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setMyProfilePicError('');
+    setIsUploadingMyProfilePic(true);
+    try {
+      if (isUnsupportedImageFile(file)) {
+        setMyProfilePicError('HEIC/HEIF images are not supported. Please upload JPG/PNG/WebP instead.');
+        return;
+      }
+
+      const uploadResponse = await uploadFile(file);
+      const uploadedUrl = String(uploadResponse.data?.url || '');
+      const uploadedFilename = String(uploadResponse.data?.filename || '');
+      const baseUrl = getUploadBaseURL();
+      const profilePictureUrl =
+        uploadedUrl || (uploadedFilename ? `${baseUrl}/uploads/${uploadedFilename}` : '');
+
+      if (!profilePictureUrl) {
+        setMyProfilePicError('Upload failed: no URL returned');
+        return;
+      }
+
+      const updateResponse = await api.put('/users/profile-picture', { profilePictureUrl });
+      const updatedUser = updateResponse.data?.user;
+      if (updatedUser) {
+        setMyProfile(updatedUser);
+      }
+
+      try {
+        const stored = JSON.parse(localStorage.getItem('user') || 'null');
+        if (stored) {
+          stored.profilePicture = updatedUser?.profilePicture || profilePictureUrl;
+          localStorage.setItem('user', JSON.stringify(stored));
+        }
+      } catch {}
+
+      setMsg('Profile picture updated');
+    } catch (err: any) {
+      setMyProfilePicError(err?.response?.data?.message || 'Failed to upload profile picture');
+    } finally {
+      setIsUploadingMyProfilePic(false);
+      try {
+        if (myProfilePicInputRef.current) myProfilePicInputRef.current.value = '';
+      } catch {}
+    }
+  };
+
+  useEffect(() => {
+    const els = Array.from(postCardElsRef.current.values());
+    if (els.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => (b.intersectionRatio || 0) - (a.intersectionRatio || 0));
+
+        const nextId = visible[0]?.target?.getAttribute('data-post-id') || '';
+        setVisiblePostId((prev) => (prev === nextId ? prev : nextId));
+      },
+      { threshold: [0.3, 0.5, 0.7] }
+    );
+
+    els.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [filteredPosts]);
+
+  useEffect(() => {
+    const stop = () => {
+      if (currentPlayingAudio) {
+        currentPlayingAudio.pause();
+        currentPlayingAudio.currentTime = 0;
+      }
+      setCurrentPlayingAudio(null);
+      setCurrentPlayingPostId('');
+    };
+
+    if (!visiblePostId) {
+      stop();
+      return;
+    }
+
+    const post = filteredPosts.find((p: any) => String(p?._id || p?.id || '') === String(visiblePostId));
+    const pid = String(post?._id || post?.id || '');
+
+    if (!post?.songUrl || !pid || postMuted[pid]) {
+      stop();
+      return;
+    }
+
+    if (pid === currentPlayingPostId) return;
+
+    // switch audio to the newly visible post
+    stop();
+
+    const audioUrl = resolveMediaUrl(post.songUrl);
+    const audio = new Audio(audioUrl);
+    audio.volume = 0.3;
+    setCurrentPlayingAudio(audio);
+    setCurrentPlayingPostId(pid);
+
+    audio
+      .play()
+      .catch(() => {
+        // Autoplay is likely blocked until user interacts
+        if (!audioAutoplayEnabled && !didShowAutoplayHint) {
+          setMsg('Tap anywhere once to enable auto-play for songs');
+          setDidShowAutoplayHint(true);
+        }
+        stop();
+      });
+  }, [
+    visiblePostId,
+    filteredPosts,
+    postMuted,
+    currentPlayingAudio,
+    currentPlayingPostId,
+    audioAutoplayEnabled,
+    didShowAutoplayHint,
+  ]);
 
   const togglePostMute = (postId: string) => {
     const pid = postId || '';
@@ -449,7 +860,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   // Post scoring algorithm
   // const calculateScore = (post: any) => {
   //   const baseScore =
-  //     (post.reactions?.['😍'] || 0) * 4 +  // love
+  //     (post.reactions?.['❤️'] || 0) * 4 +  // love
   //     (post.reactions?.['😂'] || 0) * 2 +  // laugh
   //     (post.reactions?.['😠'] || 0) * 4 +  // angry
   //     (post.reactions?.['😢'] || 0) * 2;   // sad
@@ -463,7 +874,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   // };
    const calculateScore = (post: any, isFollowing: boolean) => {
   const baseScore =
-    (post.reactions?.['😍'] || 0) * 4 +  
+    (post.reactions?.['❤️'] || 0) * 4 +  
     (post.reactions?.['😂'] || 0) * 2 +  
     (post.reactions?.['😢'] || 0) * 3 +  
     (post.reactions?.['😠'] || 0) * 2;   
@@ -478,7 +889,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
  
   const positive =
-    (post.reactions?.['😍'] || 0) +
+    (post.reactions?.['❤️'] || 0) +
     (post.reactions?.['😂'] || 0);
 
   const negative =
@@ -572,7 +983,14 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       const lat = pos.coords.latitude;
       const lng = pos.coords.longitude;
       try {
-        const res = await api.get(`/groups/available?lat=${lat}&lng=${lng}`);
+        // Keep backend location in sync so 1KM/2KM groups and membership are computed for the *current* place.
+        // Group auto-creation runs on the backend during this location update.
+        await api.put('/users/location', {
+          location: { type: 'Point', coordinates: [lng, lat] },
+        });
+
+        // List groups using server-stored location (matches join distance validation).
+        const res = await api.get(`/groups/available`);
         const fetchedGroups = res.data.groups || [];
         setGroups(fetchedGroups);
 
@@ -618,7 +1036,16 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
     try {
       const rc = JSON.parse(localStorage.getItem(`recentPrivateChats_${me?.id}`) || '[]');
-      setRecentChats(Array.isArray(rc) ? rc : []);
+      const arr = Array.isArray(rc) ? rc : [];
+      const deduped = dedupeUsers(arr);
+      setRecentChats(deduped);
+      if (deduped.length !== arr.length) {
+        try {
+          localStorage.setItem(`recentPrivateChats_${me?.id}`, JSON.stringify(deduped));
+        } catch (e) {
+          // ignore
+        }
+      }
     } catch (e) {
       setRecentChats([]);
     }
@@ -832,21 +1259,42 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       const res = await api.get(`/users/find?username=${encodeURIComponent(privateSearch.trim())}`);
       const users = res.data.users || [];
       setSearchResults(users);
-
-      
-      try {
-        const rc = JSON.parse(localStorage.getItem(`recentPrivateChats_${me?.id}`) || '[]');
-        const arr = Array.isArray(rc) ? rc : [];
-        const existingIds = new Set(arr.map((x: any) => String(x._id || x.id)));
-        const newUsers = users.filter((u: any) => !existingIds.has(String(u._id || u.id)));
-        const updated = [...newUsers, ...arr].slice(0, 20); // Keep up to 20
-        localStorage.setItem(`recentPrivateChats_${me?.id}`, JSON.stringify(updated));
-        setRecentChats(updated);
-      } catch (e) {
-        
-      }
     } catch (err: any) {
       setMsg(err?.response?.data?.message || 'Search failed');
+    }
+  };
+
+  const openPrivateChatById = async (uid: string) => {
+    const id = String(uid || '');
+    if (!id) return;
+
+    const fromRecent = recentChats.find((x: any) => String(x?._id || x?.id) === id);
+    if (fromRecent) {
+      openPrivateChat(fromRecent);
+      return;
+    }
+
+    try {
+      const cached = JSON.parse(localStorage.getItem('activePrivateChatUser') || 'null');
+      const cachedId = String(cached?._id || cached?.id || '');
+      if (cached && cachedId === id) {
+        openPrivateChat(cached);
+        return;
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    try {
+      const res = await api.get(`/users/profile/${id}`);
+      const u = res.data?.user;
+      if (u) {
+        openPrivateChat(u);
+        return;
+      }
+      setMsg('User not found');
+    } catch (err: any) {
+      setMsg(err?.response?.data?.message || 'Failed to open chat');
     }
   };
 
@@ -864,11 +1312,23 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     clearUnreadForChat(uid, null);
 
     try {
+      localStorage.setItem('activePrivateChatUser', JSON.stringify(u));
+    } catch (e) {
+      // ignore
+    }
+
+    try {
+      history.pushState(null, '', `/message/chat?uid=${encodeURIComponent(String(uid))}`);
+    } catch (e) {
+      // ignore
+    }
+
+    try {
       const rc = JSON.parse(localStorage.getItem(`recentPrivateChats_${me?.id}`) || '[]');
       const arr = Array.isArray(rc) ? rc : [];
       const filtered = arr.filter((x: any) => String(x._id || x.id) !== String(uid));
       filtered.unshift(u);
-      const trimmed = filtered.slice(0, 10);
+      const trimmed = dedupeUsers(filtered).slice(0, 10);
       localStorage.setItem(`recentPrivateChats_${me?.id}`, JSON.stringify(trimmed));
       setRecentChats(trimmed);
     } catch (e) {
@@ -882,6 +1342,32 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       setMsg(err?.response?.data?.message || 'Failed to load messages');
     }
   };
+
+  useEffect(() => {
+    if (!window.location.pathname.startsWith('/message/chat')) return;
+    setMode('private');
+
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const uid = params.get('uid');
+      if (uid) {
+        openPrivateChatById(uid);
+        return;
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    try {
+      const cached = JSON.parse(localStorage.getItem('activePrivateChatUser') || 'null');
+      const cachedId = cached?._id || cached?.id;
+      if (cachedId) {
+        openPrivateChat(cached);
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
 
   const deleteFromRecentChats = (u: any) => {
     try {
@@ -1028,10 +1514,6 @@ export default function Message({ groupName }: { groupName?: string | null }) {
         payload.mediaUrl = messageMediaUrl;
         payload.mediaType = messageMediaType;
       }
-      if (isVoiceMode && text.trim()) {
-        payload.isVoice = true;
-        payload.voiceGender = voiceGender;
-      }
       if (sock) {
         sock.emit('group:message', payload);
         const messageObj = { ...payload, id: localId, localId, groupId: activeGroup.id, groupName: activeGroup.groupName, senderId: me?.id, sender: { id: me?.id, username: me?.username }, createdAt: new Date().toISOString() };
@@ -1053,10 +1535,6 @@ export default function Message({ groupName }: { groupName?: string | null }) {
         // Send only the URL, not base64 data
         payload.mediaUrl = messageMediaUrl;
         payload.mediaType = messageMediaType;
-      }
-      if (isVoiceMode && text.trim()) {
-        payload.isVoice = true;
-        payload.voiceGender = voiceGender;
       }
       if (sock) {
         sock.emit('private:message', payload);
@@ -1190,8 +1668,24 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     }
   }, []);
 
+  const resetPostComposer = () => {
+    setPostContent('');
+    setPostImage(null);
+    setPostSong('');
+    setPostPrivate(false);
+    setPostIsLocked(false);
+    setPostLockedPrice(0);
+    try {
+      if (postImageInputRef.current) postImageInputRef.current.value = '';
+    } catch {}
+  };
+
   const createPost = async () => {
     if (!postContent.trim() && !postImage && !postSong) return setMsg('Nothing to post');
+    
+    if (postIsLocked && postLockedPrice <= 0) {
+      return setMsg('Please enter a valid price for locked post');
+    }
     
     // Validate file size for mobile compatibility
     if (postImage) {
@@ -1202,12 +1696,15 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       }
     }
     
-    console.log('Creating post with:', { content: postContent, hasSong: !!postSong, songValue: postSong });
+    console.log('Creating post with:', { content: postContent, hasSong: !!postSong, songValue: postSong, isLocked: postIsLocked, lockedPrice: postLockedPrice });
     setPostLoading(true);
     try {
       const formData = new FormData();
-      formData.append('content', postContent);
+      if (postContent.trim()) formData.append('content', postContent);
       formData.append('anonymous', String(postAnonymous));
+      formData.append('isPrivate', String(postPrivate));
+      formData.append('isLocked', String(postIsLocked));
+      if (postIsLocked) formData.append('lockedPrice', String(postLockedPrice));
       if (postImage) formData.append('image', postImage);
       if (postSong) formData.append('songUrl', postSong);
 
@@ -1217,7 +1714,14 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       setPostContent('');
       setPostImage(null);
       setPostSong('');
+      setPostPrivate(false);
+      setPostIsLocked(false);
+      setPostLockedPrice(0);
       setMsg('Post created');
+      try {
+        if (postImageInputRef.current) postImageInputRef.current.value = '';
+      } catch {}
+      setIsPostComposerOpen(false);
       
       // Refetch posts to ensure we have the latest from the server
       // This ensures proper sorting, scoring, and all fields are correctly populated
@@ -1230,32 +1734,60 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     }
   };
 
-  const searchUserPosts = async () => {
-    if (!postSearchQuery.trim()) {
+  const openUserPosts = async (usernameRaw: string, userIdHint?: string) => {
+    const username = String(usernameRaw || '').trim();
+    if (!username) {
       setPostSearchResults([]);
-      setPostIsSearching(false);
       setSelectedPostUsername(null);
+      setSelectedUserProfile(null);
       return;
     }
 
+    // Keep search UI/state in sync so "clicked username" looks the same as "searched username"
+    setPostSearchQuery(username);
+    setPostSearchOpen(true);
+    setSelectedPostUsername(username);
+    setSelectedUserProfile(null);
+    setViewingOwnPosts(false);
+
     try {
       setPostIsSearching(true);
-      const res = await api.get(`/posts/user/${encodeURIComponent(postSearchQuery.trim())}`);
+      const res = await api.get(`/posts/user/${encodeURIComponent(username)}`);
       setPostSearchResults(res.data || []);
-      setSelectedPostUsername(postSearchQuery.trim());
+
+      const userId =
+        userIdHint ||
+        res.data?.[0]?.user?._id ||
+        res.data?.[0]?.user?.id ||
+        '';
+
+      if (userId) {
+        try {
+          const profileRes = await api.get(`/users/profile/${userId}`);
+          setSelectedUserProfile(profileRes.data.user);
+        } catch (err) {
+          console.error('Failed to fetch user profile:', err);
+        }
+      }
     } catch (err: any) {
       setMsg(err?.response?.data?.message || 'Failed to search user posts');
       setPostSearchResults([]);
       setSelectedPostUsername(null);
+      setSelectedUserProfile(null);
     } finally {
       setPostIsSearching(false);
     }
+  };
+
+  const searchUserPosts = async () => {
+    return openUserPosts(postSearchQuery);
   };
 
   const clearPostSearch = () => {
     setPostSearchQuery('');
     setPostSearchResults([]);
     setSelectedPostUsername(null);
+    setSelectedUserProfile(null);
   };
 
   const viewOwnPosts = () => {
@@ -1281,6 +1813,15 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
   const handleEmojiReaction = async (postId: string, emoji: string) => {
     try {
+      // Trigger floating emoji animation
+      const floatingId = `${postId}-${Date.now()}-${Math.random()}`;
+      setFloatingEmojis(prev => [...prev, { id: floatingId, emoji, postId }]);
+      
+      // Remove floating emoji after 2 seconds
+      setTimeout(() => {
+        setFloatingEmojis(prev => prev.filter(e => e.id !== floatingId));
+      }, 2000);
+      
       await api.post(`/posts/${postId}/react`, { emoji });
       fetchPosts();
     } catch (err: any) {
@@ -1345,6 +1886,40 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     }
   };
 
+  const handleBlockUser = async (userId: string) => {
+    if (!userId) return;
+    if (!confirm('Block this user? They will not be able to see your posts/status/profile or message you.')) return;
+    try {
+      await api.post(`/users/${userId}/block`);
+      setBlockedUsers(prev => new Set([...prev, userId]));
+      setMsg('User blocked');
+      try {
+        clearPostSearch();
+      } catch {}
+      await fetchPosts();
+    } catch (err: any) {
+      setMsg(err?.response?.data?.message || 'Failed to block user');
+    }
+  };
+
+  const handleUnblockUser = async (userId: string) => {
+    if (!userId) return;
+    if (!confirm('Unblock this user?')) return;
+    try {
+      await api.post(`/users/${userId}/unblock`);
+      setBlockedUsers(prev => {
+        const next = new Set(prev);
+        next.delete(userId);
+        return next;
+      });
+      setBlockedUsersList(prev => prev.filter((u: any) => String(u?._id || u?.id || '') !== String(userId)));
+      setMsg('User unblocked');
+      await fetchPosts();
+    } catch (err: any) {
+      setMsg(err?.response?.data?.message || 'Failed to unblock user');
+    }
+  };
+
   const loadFollowersAndFollowing = async () => {
     setLoadingFollowersList(true);
     try {
@@ -1358,6 +1933,104 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       console.error('Failed to load followers/following:', err);
     } finally {
       setLoadingFollowersList(false);
+    }
+  };
+
+  const handleUnlockPost = async (postId: string) => {
+    try {
+      setUnlockInitiating(true);
+      const orderRes = await api.post(`/posts/${postId}/unlock/order`);
+      setUnlockDialog({
+        postId,
+        orderId: String(orderRes.data?.orderId || ''),
+        amount: Number(orderRes.data?.amount || 0),
+        key: String(orderRes.data?.key || ''),
+        upiVpa: orderRes.data?.upiVpa,
+        payeeName: orderRes.data?.payeeName,
+      });
+    } catch (err: any) {
+      setMsg(err?.response?.data?.message || 'Failed to initiate payment');
+      console.error('Payment error:', err);
+    } finally {
+      setUnlockInitiating(false);
+    }
+  };
+
+  const ensureRazorpayScript = () =>
+    new Promise<void>((resolve, reject) => {
+      if ((window as any).Razorpay) return resolve();
+      const existing = document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]');
+      if (existing) {
+        existing.addEventListener('load', () => resolve());
+        existing.addEventListener('error', () => reject(new Error('Failed to load Razorpay')));
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error('Failed to load Razorpay'));
+      document.body.appendChild(script);
+    });
+
+  const startUnlockPayment = async (method?: any) => {
+    if (!unlockDialog?.postId || !unlockDialog?.orderId || !unlockDialog?.key) {
+      setMsg('Payment is not ready. Please try again.');
+      return;
+    }
+
+    try {
+      await ensureRazorpayScript();
+      const postId = unlockDialog.postId;
+      const orderId = unlockDialog.orderId;
+      const amount = unlockDialog.amount;
+
+      const options: any = {
+        key: unlockDialog.key,
+        order_id: orderId,
+        name: unlockDialog.payeeName || 'Locked Post',
+        description: `Unlock post for ₹${amount}`,
+        amount: amount * 100,
+        currency: 'INR',
+        handler: async (response: any) => {
+          try {
+            const verifyRes = await api.post(`/posts/${postId}/unlock/verify`, {
+              orderId,
+              paymentId: response.razorpay_payment_id,
+              signature: response.razorpay_signature,
+            });
+            if (verifyRes.data.ok) {
+              setMsg('Post unlocked successfully!');
+              setUnlockDialog(null);
+              fetchPosts();
+            }
+          } catch (err: any) {
+            setMsg(err?.response?.data?.message || 'Payment verification failed');
+          }
+        },
+        prefill: {
+          name: me?.name || '',
+          email: me?.email || '',
+        },
+        notes: {
+          postId,
+        },
+        theme: {
+          color: '#3b82f6',
+        },
+      };
+
+      if (method) {
+        options.method = method;
+      }
+
+      const razorpay = new (window as any).Razorpay(options);
+      razorpay.on('payment.failed', (resp: any) => {
+        setMsg(resp?.error?.description || 'Payment failed');
+      });
+      razorpay.open();
+    } catch (e: any) {
+      setMsg(e?.message || 'Failed to start payment');
     }
   };
 
@@ -1495,7 +2168,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     <div className="grid grid-cols-1 gap-4">
       {/* Notification Display */}
       {notification && (
-        <div className="fixed top-4 right-4 bg-blue-500 text-white px-4 py-3 rounded-lg shadow-lg z-50 animate-pulse">
+        <div className="fixed top-4 right-4 bg-blue-500 text-black px-4 py-3 rounded-lg shadow-lg z-50 animate-pulse">
           {notification.message}
         </div>
       )}
@@ -1552,14 +2225,53 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       {!groupName && (
         <div className="flex items-center justify-between">
           <div className="flex space-x-2">
-            <button onClick={() => setMode('posts')} className={`px-3 py-1 rounded ${mode === 'posts' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>🏠</button>
-            <button onClick={() => setMode('groups')} className={`px-3 py-1 rounded ${mode === 'groups' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>👥</button>
-            <button onClick={() => setMode('private')} className={`px-3 py-1 rounded ${mode === 'private' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>👤</button>
-            <button aria-label="Special" onClick={() => setMode('status')} className={`px-3 py-1 rounded ${mode === 'status' ? 'bg-blue-600 text-black' : 'bg-gray-100'}`}>
+            <button
+              onClick={() => {
+                if (isPrivateChatPage) history.pushState(null, '', `/message`);
+                setMode('posts');
+              }}
+              className={`px-3 py-1 rounded ${mode === 'posts' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}
+            >
+              🏠
+            </button>
+            <button
+              onClick={() => {
+                if (isPrivateChatPage) history.pushState(null, '', `/message`);
+                setMode('groups');
+              }}
+              className={`px-3 py-1 rounded ${mode === 'groups' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}
+            >
+              👥
+            </button>
+            <button
+              onClick={() => {
+                if (isPrivateChatPage) history.pushState(null, '', `/message`);
+                setMode('private');
+              }}
+              className={`px-3 py-1 rounded ${mode === 'private' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}
+            >
+              👤
+            </button>
+            <button
+              aria-label="Special"
+              onClick={() => {
+                if (isPrivateChatPage) history.pushState(null, '', `/message`);
+                setMode('status');
+              }}
+              className={`px-3 py-1 rounded ${mode === 'status' ? 'bg-blue-600 text-black' : 'bg-gray-100'}`}
+            >
               <ActiveIcon />
             </button>
             {/* <button onClick={() => setMode('posts')} className={`px-3 py-1 rounded ${mode === 'posts' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>📸</button> */}
-            <button onClick={() => setMode('random')} className={`px-3 py-1 rounded ${mode === 'random' ? 'bg-blue-600 text-black' : 'bg-gray-100'}`}>🕵️‍♂️ </button>
+            <button
+              onClick={() => {
+                if (isPrivateChatPage) history.pushState(null, '', `/message`);
+                setMode('random');
+              }}
+              className={`px-3 py-1 rounded ${mode === 'random' ? 'bg-blue-600 text-black' : 'bg-gray-100'}`}
+            >
+              🕵️‍♂️{' '}
+            </button>
           </div>
           <div className="flex items-center space-x-2 relative">
             <div className="fixed top-4 right-4 z-30">
@@ -1569,7 +2281,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
               >
                 🔔
                 {unreadCount > 0 && (
-                  <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                  <span className="absolute -top-2 -right-2 bg-red-500 text-black text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
                     {unreadCount}
                   </span>
                 )}
@@ -1651,10 +2363,38 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                       <span>📏</span>
                       <span>Text Size</span>
                     </button>
-                  <button className='text-red-800' onClick={()=>{
-                      
-                    }} >Report</button>
-                    <a href="mailto:singhanshu1234@gmail.com" className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:text-blue-600 hover:bg-black rounded">Contact us</a>
+                  <button
+                      className='w-full text-left px-3 py-2 flex items-center space-x-2 hover:bg-black rounded'
+                      onClick={() => {
+                        setShowUsernameDialog(true);
+                        setHeaderMenuOpen(false);
+                      }}
+                    >
+                      <span>✏️</span>
+                      <span>Change Username</span>
+                    </button>
+                    <button
+                      className='text-red-800 w-full text-left px-3 py-2 flex items-center space-x-2 hover:bg-black rounded'
+                      onClick={() => {
+                        setShowDeleteDialog(true);
+                        setHeaderMenuOpen(false);
+                      }}
+                    >
+                      <span>🗑️</span>
+                      <span>Delete Account</span>
+                    </button>
+                    <button
+                      className='w-full text-left px-3 py-2 flex items-center space-x-2 hover:bg-black rounded'
+                      onClick={async () => {
+                        setHeaderMenuOpen(false);
+                        setShowBlockedUsersDialog(true);
+                        await loadBlockedUsersList();
+                      }}
+                    >
+                      <span>🚫</span>
+                      <span>Blocked Users</span>
+                    </button>
+                    <a href="mailto:singhsugo24228@gmail.com" className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:text-blue-600 hover:bg-black rounded">Contact us</a>
                   </div>
                 </aside>
               </>
@@ -1777,6 +2517,185 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                     </button>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {showDeleteDialog && (
+              <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-[10000] w-80 bg-white border rounded shadow-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="font-medium">Delete Account</div>
+                  <button
+                    onClick={() => {
+                      setShowDeleteDialog(false);
+                      setDeleteForm({ password: '', otp: '' });
+                      setDeleteMsg('');
+                    }}
+                    className="text-sm text-gray-500"
+                  >Close</button>
+                </div>
+                <p className="text-sm mb-2 text-red-600">
+                  This action is irreversible. You will need to enter your password and a one‑time code sent to your email.
+                </p>
+                <input
+                  type="password"
+                  placeholder="Password"
+                  value={deleteForm.password}
+                  onChange={(e) => setDeleteForm({ ...deleteForm, password: e.target.value })}
+                  className="w-full p-2 border rounded mb-2 text-black mt-2 shadow-lg shadow-black/100"
+                />
+                <div className="flex items-center space-x-2">
+                  <input
+                    placeholder="OTP code"
+                    value={deleteForm.otp}
+                    onChange={(e) => setDeleteForm({ ...deleteForm, otp: e.target.value })}
+                    className="flex-1 p-2 border rounded text-black mt-2 shadow-lg shadow-black/100"
+                  />
+                  <button onClick={sendDeleteOtp} className="px-3 py-2 bg-blue-600 text-white rounded mt-2">
+                    Send OTP
+                  </button>
+                </div>
+                <button
+                  onClick={doDeleteAccount}
+                  className="w-full px-4 py-2 bg-red-600 text-white rounded mt-4"
+                >
+                  Delete account
+                </button>
+                {deleteMsg && <p className="mt-2 text-sm text-red-600">{deleteMsg}</p>}
+              </div>
+            )}
+
+            {showBlockedUsersDialog && (
+              <div
+                className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center p-3 sm:p-4"
+                onClick={() => {
+                  setShowBlockedUsersDialog(false);
+                  setBlockedUsersError('');
+                }}
+              >
+                <div className="absolute inset-0 bg-black/50" />
+                <div
+                  className="relative w-full max-w-md bg-white border rounded-t-2xl sm:rounded shadow-lg p-4 max-h-[85vh] flex flex-col"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="font-medium">Blocked Users</div>
+                    <button
+                      onClick={() => {
+                        setShowBlockedUsersDialog(false);
+                        setBlockedUsersError('');
+                      }}
+                      className="text-sm text-gray-500"
+                    >
+                      Close
+                    </button>
+                  </div>
+
+                  {blockedUsersError && (
+                    <div className="text-sm text-red-600 mb-2">{blockedUsersError}</div>
+                  )}
+
+                  <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-0">
+                    {blockedUsersLoading ? (
+                      <div className="text-sm text-gray-600">Loading...</div>
+                    ) : blockedUsersList.length === 0 ? (
+                      <div className="text-sm text-gray-600">You have not blocked anyone.</div>
+                    ) : (
+                      blockedUsersList.map((u: any) => {
+                        const uid = String(u?._id || u?.id || '');
+                        const uname = String(u?.username || '').trim();
+                        const displayName = String(u?.name || '').trim();
+                        const pic = u?.profilePicture ? resolveMediaUrl(u.profilePicture) : '';
+                        return (
+                          <div key={uid} className="flex items-center justify-between gap-3 border rounded-xl p-2">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-10 h-10 rounded-full bg-gray-200 overflow-hidden flex items-center justify-center flex-shrink-0">
+                                {pic ? (
+                                  <img src={pic} alt={displayName || uname || 'User'} className="w-full h-full object-cover" />
+                                ) : (
+                                  <span className="text-sm font-semibold text-gray-700">{(uname?.[0] || displayName?.[0] || 'U').toUpperCase()}</span>
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium text-gray-900 truncate">{uname ? `@${uname}` : 'User'}</div>
+                                {displayName && <div className="text-xs text-gray-600 truncate">{displayName}</div>}
+                              </div>
+                            </div>
+                            <button
+                              onClick={async () => {
+                                await handleUnblockUser(uid);
+                              }}
+                              className="px-3 py-1.5 rounded-full bg-green-600 text-white text-sm hover:bg-green-700"
+                            >
+                              Unblock
+                            </button>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between">
+                    <button
+                      onClick={loadBlockedUsersList}
+                      disabled={blockedUsersLoading}
+                      className="px-3 py-2 bg-gray-100 rounded-lg text-sm text-gray-800 hover:bg-gray-200 disabled:opacity-50"
+                    >
+                      Refresh
+                    </button>
+                    <div className="text-xs text-gray-500">{blockedUsersList.length} blocked</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {showUsernameDialog && (
+              <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-[10000] w-80 bg-white border rounded shadow-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="font-medium">Change Username</div>
+                  <button
+                    onClick={() => {
+                      setShowUsernameDialog(false);
+                      setUsernameForm({ newUsername: '', password: '', otp: '' });
+                      setUsernameMsg('');
+                    }}
+                    className="text-sm text-gray-500"
+                  >Close</button>
+                </div>
+                <p className="text-sm mb-2">
+                  Provide the new username you want and confirm with your password and an OTP sent to your email.
+                </p>
+                <input
+                  type="text"
+                  placeholder="New username"
+                  value={usernameForm.newUsername}
+                  onChange={(e) => setUsernameForm({ ...usernameForm, newUsername: e.target.value })}
+                  className="w-full p-2 border rounded mb-2 text-black mt-2 shadow-lg shadow-black/100"
+                />
+                <input
+                  type="password"
+                  placeholder="Password"
+                  value={usernameForm.password}
+                  onChange={(e) => setUsernameForm({ ...usernameForm, password: e.target.value })}
+                  className="w-full p-2 border rounded mb-2 text-black mt-2 shadow-lg shadow-black/100"
+                />
+                <div className="flex items-center space-x-2">
+                  <input
+                    placeholder="OTP code"
+                    value={usernameForm.otp}
+                    onChange={(e) => setUsernameForm({ ...usernameForm, otp: e.target.value })}
+                    className="flex-1 p-2 border rounded text-black mt-2 shadow-lg shadow-black/100"
+                  />
+                  <button onClick={sendUsernameOtp} className="px-3 py-2 bg-blue-600 text-white rounded mt-2">
+                    Send OTP
+                  </button>
+                </div>
+                <button
+                  onClick={doChangeUsername}
+                  className="w-full px-4 py-2 bg-green-600 text-white rounded mt-4"
+                >
+                  Change username
+                </button>
+                {usernameMsg && <p className="mt-2 text-sm text-red-600">{usernameMsg}</p>}
               </div>
             )}
 
@@ -2049,25 +2968,14 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                     🎤
                   </button> */}
                   <div className="relative flex-1">
-                    <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Type a message" className="w-full p-2 pr-10 border rounded text-black" />
-                    {/* <button type="button" onClick={speakText} className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-600 hover:text-gray-800">🔊</button> */}
-                    <button  onClick={() => setIsVoiceMode(!isVoiceMode)} className={`absolute right-2 top-1/2 transform -translate-y-1/2 ${isVoiceMode ? 'bg-green-600 text-white' : 'bg-gray-200 text-black'} `} title={isVoiceMode ? 'Voice mode enabled' : 'Enable voice mode'}>🔊</button>
+                    <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Type a message" className="w-full p-2 border rounded text-black" />
                   </div>
-                  {isVoiceMode && (
-                    <select
-                      value={voiceGender}
-                      onChange={(e) => setVoiceGender(e.target.value as 'male' | 'female')}
-                      className="px-2 py-2 border rounded text-black"
-                    >
-                      <option value="male">♂️ Male</option>
-                      <option value="female">♀️ Female</option>
-                    </select>
-                  )}
+                  <button onClick={openFile} disabled={isUploadingMessageMedia} className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">📎</button>
                   <button onClick={sendMessage} disabled={isUploadingMessageMedia} className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed">{isUploadingMessageMedia ? '⏳' : '➤'}</button>
                 </div>
                 <div className="mt-2">
                   <div className="flex items-center space-x-2">
-                  <button onClick={openFile} disabled={isUploadingMessageMedia} className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">{isUploadingMessageMedia ? '⏳ Uploading...' : '📎'}</button>
+                  {/* <button onClick={openFile} disabled={isUploadingMessageMedia} className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">{isUploadingMessageMedia ? '⏳ Uploading...' : '📎'}</button> */}
 
                     {messageSelectedFileName && <div className="text-sm text-gray-500">{isUploadingMessageMedia ? 'Uploading: ' : 'Selected: '}{messageSelectedFileName}</div>}
                   </div>
@@ -2283,9 +3191,18 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                     {selectedStatus.mediaUrl && (
                       <div className="mt-3">
                         {(selectedStatus.mediaType === 'image' || String(selectedStatus.mediaUrl).startsWith('data:image') || String(selectedStatus.mediaUrl).match(/\.(png|jpe?g|gif|webp)(\?|$)/i)) ? (
-                          <img src={resolveMediaUrl(selectedStatus.mediaUrl)} alt="media" className="w-full h-96 object-cover rounded" />
+                          <img
+                            src={resolveMediaUrl(selectedStatus.mediaUrl)}
+                            alt="media"
+                            className="w-full h-96 object-cover rounded cursor-zoom-in"
+                            onClick={() => setZoomedPostMedia({ src: resolveMediaUrl(selectedStatus.mediaUrl), kind: 'image' })}
+                          />
                         ) : (
-                          <video src={resolveMediaUrl(selectedStatus.mediaUrl)} controls className="w-full h-96 object-cover rounded" />
+                          <video
+                            src={resolveMediaUrl(selectedStatus.mediaUrl)}
+                            className="w-full h-96 object-cover rounded cursor-zoom-in"
+                            onClick={() => setZoomedPostMedia({ src: resolveMediaUrl(selectedStatus.mediaUrl), kind: 'video' })}
+                          />
                         )}
                       </div>
                     )}
@@ -2309,7 +3226,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
         </div>
       )}
 
-      {mode === 'private' && (
+      {mode === 'private' && !isPrivateChatPage && (
         <div>
           <h2 className="text-lg font-semibold">Private chat</h2>
           <div className="mt-2 flex space-x-2">
@@ -2322,14 +3239,24 @@ export default function Message({ groupName }: { groupName?: string | null }) {
               <h4 className="font-semibold">Recent chats</h4>
               <ul className="mt-1 space-y-1">
                 {recentChats.map((u: any) => (
-                  <li key={u._id || u.id} className="p-2 border rounded flex justify-between items-center text-black">
+                  <li key={String(u._id || u.id || u.username)} className="p-2 border rounded flex justify-between items-center text-black">
                     <div>
                       <div className="font-medium text-black">{u.username}</div>
                       <div className="text-sm text-black">{u.name} • {u.isOnline ? 'Online' : 'Offline'}</div>
                     </div>
                     <div className="space-x-2">
-                      <button onClick={() => openPrivateChat(u)} className="px-3 py-1 bg-blue-600 text-white rounded">Chat</button>
-                      <button onClick={() => deleteFromRecentChats(u)} className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700">×</button>
+                      <button
+                        onClick={() => openPrivateChat(u)}
+                        className="px-3 py-1 border border-blue-600 text-blue-600 rounded hover:bg-blue-600 hover:text-white transition"
+                      >
+                        Chat
+                      </button>
+                      <button
+                        onClick={() => deleteFromRecentChats(u)}
+                        className="px-2 py-1 border border-red-600 text-red-600 rounded hover:bg-red-600 hover:text-white transition"
+                      >
+                        ×
+                      </button>
                     </div>
                   </li>
                 ))}
@@ -2340,19 +3267,55 @@ export default function Message({ groupName }: { groupName?: string | null }) {
           <ul className="mt-2 space-y-2">
             {searchResults.map((u) => (
               <li key={u._id} className="p-2 border rounded flex justify-between items-center text-black">
-                <div>
-                  <div className="font-medium text-black">{u.username}</div>
+                <div
+                  className="flex-1 cursor-pointer hover:text-blue-600"
+                  onClick={() => window.location.pathname = `/profile/${u._id}`}
+                >
+                  <div className="font-medium text-black hover:text-blue-600">{u.username}</div>
                   <div className="text-sm text-black">{u.name} • {u.isOnline ? 'Online' : 'Offline'}</div>
                 </div>
                 <div className="space-x-2">
-                  <button onClick={() => openPrivateChat(u)} className="px-3 py-1 bg-blue-600 text-white rounded">Chat</button>
-                  <button onClick={() => deleteFromSearchResults(u)} className="px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700">×</button>
+                  <button
+                    onClick={() => openPrivateChat(u)}
+                    className="px-3 py-1 border border-blue-600 text-blue-600 rounded hover:bg-blue-600 hover:text-white transition"
+                  >
+                    Chat
+                  </button>
+                  <button
+                    onClick={() => deleteFromSearchResults(u)}
+                    className="px-2 py-1 border border-red-600 text-red-600 rounded hover:bg-red-600 hover:text-white transition"
+                  >
+                    ×
+                  </button>
                 </div>
               </li>
             ))}
           </ul>
+        </div>
+      )}
 
-          {activePrivateUser && (
+      {isPrivateChatPage && (
+        <div>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Private chat</h2>
+            <button
+              onClick={() => {
+                try {
+                  history.pushState(null, '', `/message`);
+                } catch (e) {
+                  // ignore
+                }
+                setMode('private');
+              }}
+              className="px-3 py-1 bg-gray-200 rounded text-black"
+            >
+              Back
+            </button>
+          </div>
+
+          {!activePrivateUser ? (
+            <div className="mt-4 text-sm text-gray-500">No chat selected</div>
+          ) : (
             <div className="mt-4">
               <h3 className="font-semibold">Chat with: {activePrivateUser.username}</h3>
 
@@ -2394,35 +3357,9 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
               <div className="mt-2">
                 <div className="flex items-center space-x-2">
-                  {/* <button
-                    onClick={() => setIsVoiceMode(!isVoiceMode)}
-                    className={`px-3 py-2 rounded ${isVoiceMode ? 'bg-green-600 text-white' : 'bg-gray-200 text-black'}`}
-                    title={isVoiceMode ? 'Voice mode enabled' : 'Enable voice mode'}
-                  >
-                    🎤
-                  </button> */}
                   <div className="relative flex-1">
-                    <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Type a message" className="w-full p-2 pr-10 border rounded text-black" />
-                    {/* <button type="button" onClick={speakText} className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-600 hover:text-gray-800">🔊</button> */}
-                    <button  onClick={() => setIsVoiceMode(!isVoiceMode)} className={`absolute right-2 top-1/2 transform -translate-y-1/2 ${isVoiceMode ? 'bg-green-600 text-white' : 'bg-gray-200 text-black'} `} title={isVoiceMode ? 'Voice mode enabled' : 'Enable voice mode'}>🔊</button>
-                  {/* <button
-                    onClick={() => setIsVoiceMode(!isVoiceMode)}
-                    className={`px-3 py-2  rounded ${isVoiceMode ? 'bg-green-600 text-white' : 'bg-gray-200 text-black'}`}
-                    title={isVoiceMode ? 'Voice mode enabled' : 'Enable voice mode'}
-                  >
-                    🎤
-                  </button> */}
+                    <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Type a message" className="w-full p-2 border rounded text-black" />
                   </div>
-                  {isVoiceMode && (
-                    <select
-                      value={voiceGender}
-                      onChange={(e) => setVoiceGender(e.target.value as 'male' | 'female')}
-                      className="px-2 py-2 border rounded text-black"
-                    >
-                      <option value="male">♂️ Male</option>
-                      <option value="female">♀️ Female</option>
-                    </select>
-                  )}
                   <button onClick={openFile} className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">📎</button>
                   <button onClick={sendMessage} className="px-4 py-2 bg-blue-600 text-white rounded">➤</button>
                 </div>
@@ -2447,24 +3384,45 @@ export default function Message({ groupName }: { groupName?: string | null }) {
         <div>
           <h2 className="text-lg font-semibold">Posts</h2>
 
-          <div className="mt-2 flex gap-2">
-            <button onClick={() => setPostContent(postContent ? '' : ' ')} className="px-3 py-1 bg-blue-600 text-white rounded">
-              +
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              onClick={() => {
+                if (isPostComposerOpen) {
+                  setIsPostComposerOpen(false);
+                  resetPostComposer();
+                } else {
+                  setIsPostComposerOpen(true);
+                }
+              }}
+              className={`h-10 w-10 rounded-full flex items-center justify-center shadow-sm transition ${
+                isPostComposerOpen
+                  ? 'bg-gray-900 text-white hover:bg-gray-800'
+                  : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700'
+              }`}
+              title={isPostComposerOpen ? 'Close composer' : 'Create post'}
+              aria-label={isPostComposerOpen ? 'Close post composer' : 'Open post composer'}
+            >
+              {isPostComposerOpen ? '✕' : '+'}
             </button>
-            <button onClick={() => setPostSearchOpen(!postSearchOpen)} className="px-3 py-1 bg-green-600 text-white rounded">
+            <button
+              onClick={() => setPostSearchOpen(!postSearchOpen)}
+              className={`h-10 w-10 rounded-full flex items-center justify-center border transition ${
+                postSearchOpen ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-200 text-gray-800 hover:bg-gray-50'
+              }`}
+              title="Search posts"
+              aria-label="Search posts"
+            >
               🔍
             </button>
             <button
               onClick={() => {
-                viewOwnPosts();
-                if (!viewingOwnPosts) {
-                  setShowFollowersFollowingDropdown(true);
-                  loadFollowersAndFollowing();
-                } else {
-                  setShowFollowersFollowingDropdown(false);
-                }
+                openMyProfileModal();
               }}
-              className={`px-3 py-1 rounded ${viewingOwnPosts ? 'bg-purple-600 text-white' : 'bg-gray-300'}`}
+              className={`h-10 w-10 rounded-full flex items-center justify-center transition ${
+                showMyProfileModal ? 'bg-blue-600 text-white' : viewingOwnPosts ? 'bg-purple-600 text-white' : 'bg-gray-300'
+              }`}
+              title={viewingOwnPosts ? 'Viewing my posts' : 'View my profile'}
+              aria-label="View my profile"
             >
               👁️
             </button>
@@ -2494,7 +3452,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                 <button
                   onClick={searchUserPosts}
                   disabled={postIsSearching}
-                  className="bg-blue-500 text-white px-3 py-2 rounded text-sm disabled:opacity-50"
+                  className="border border-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded text-sm disabled:opacity-50"
                 >
                   {postIsSearching ? 'Searching...' : 'Search'}
                 </button>
@@ -2504,7 +3462,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                       clearPostSearch();
                       setPostSearchOpen(false);
                     }}
-                    className="bg-gray-400 text-white px-2 py-2 rounded text-sm"
+                    className="border border-gray-400 text-white px-2 py-2 rounded text-sm"
                   >
                     ✕
                   </button>
@@ -2514,13 +3472,13 @@ export default function Message({ groupName }: { groupName?: string | null }) {
           )}
 
           {showFollowersFollowingDropdown && viewingOwnPosts && !selectedFollowersList && (
-            <div className="mt-3 p-4 border rounded bg-gray-900 shadow-lg">
-              <div className="flex gap-8">
+            <div className="mt-2 p-2 border rounded bg-gray-900 shadow-lg">
+              <div className="flex gap-4">
                 {/* Followers Section */}
                 <div className="flex-1">
                   <h3 
                     onClick={() => setSelectedFollowersList('followers')}
-                    className="font-semibold text-white cursor-pointer hover:text-blue-400 transition text-lg"
+                    className="font-semibold text-white cursor-pointer hover:text-blue-400 transition text-sm"
                   >
                     👥 Followers ({followers.length})
                   </h3>
@@ -2530,7 +3488,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                 <div className="flex-1">
                   <h3 
                     onClick={() => setSelectedFollowersList('following')}
-                    className="font-semibold text-white cursor-pointer hover:text-green-400 transition text-lg"
+                    className="font-semibold text-white cursor-pointer hover:text-green-400 transition text-sm"
                   >
                     👉 Following ({following.length})
                   </h3>
@@ -2540,7 +3498,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
           )}
 
           {showFollowersFollowingDropdown && viewingOwnPosts && selectedFollowersList === 'followers' && (
-            <div className="mt-3 p-4 border rounded bg-gray-900 shadow-lg max-h-80 overflow-y-auto">
+            <div className="mt-2 p-3 border rounded bg-gray-900 shadow-lg max-h-80 overflow-y-auto">
               <div className="mb-3 flex items-center gap-2">
                 <button
                   onClick={() => setSelectedFollowersList(null)}
@@ -2555,14 +3513,17 @@ export default function Message({ groupName }: { groupName?: string | null }) {
               ) : (
                 <div className="space-y-2 max-h-64 overflow-y-auto">
                   {followers.map((user: any) => (
-                    <div key={user._id} className="flex items-center justify-between bg-gray-800 p-2 rounded text-sm hover:bg-gray-700 transition">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-xs font-bold">
+                    <div key={user._id} className="flex items-center justify-between bg-gray-800 p-2 rounded text-sm hover:bg-gray-700 transition cursor-pointer" onClick={() => openUserPosts(user.username, user._id)}>
+                      <div className="flex items-center gap-2 flex-1">
+                        <div className="relative w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-xs font-bold flex-shrink-0">
                           {user.username?.[0]?.toUpperCase() || 'U'}
+                          {user.isOnline && (
+                            <div className="absolute bottom-0 right-0 w-2 h-2 bg-green-400 rounded-full border border-white"></div>
+                          )}
                         </div>
-                        <div>
-                          <div className="text-white font-medium">{user.username}</div>
-                          <div className="text-gray-400 text-xs">{user.isOnline ? '🟢 Online' : '⚫ Offline'}</div>
+                        <div className="flex-1">
+                          <div className="text-white font-medium hover:text-blue-400 transition">{user.username}</div>
+                          {user.about && <div className="text-gray-400 text-xs italic">{user.about}</div>}
                         </div>
                       </div>
                     </div>
@@ -2573,7 +3534,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
           )}
 
           {showFollowersFollowingDropdown && viewingOwnPosts && selectedFollowersList === 'following' && (
-            <div className="mt-3 p-4 border rounded bg-gray-900 shadow-lg max-h-80 overflow-y-auto">
+            <div className="mt-2 p-3 border rounded bg-gray-900 shadow-lg max-h-80 overflow-y-auto">
               <div className="mb-3 flex items-center gap-2">
                 <button
                   onClick={() => setSelectedFollowersList(null)}
@@ -2588,14 +3549,17 @@ export default function Message({ groupName }: { groupName?: string | null }) {
               ) : (
                 <div className="space-y-2 max-h-64 overflow-y-auto">
                   {following.map((user: any) => (
-                    <div key={user._id} className="flex items-center justify-between bg-gray-800 p-2 rounded text-sm hover:bg-gray-700 transition">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center text-xs font-bold">
+                    <div key={user._id} className="flex items-center justify-between bg-gray-800 p-2 rounded text-sm hover:bg-gray-700 transition cursor-pointer" onClick={() => openUserPosts(user.username, user._id)}>
+                      <div className="flex items-center gap-2 flex-1">
+                        <div className="relative w-6 h-6 rounded-full bg-green-500 flex items-center justify-center text-xs font-bold flex-shrink-0">
                           {user.username?.[0]?.toUpperCase() || 'U'}
+                          {user.isOnline && (
+                            <div className="absolute bottom-0 right-0 w-2 h-2 bg-green-400 rounded-full border border-white"></div>
+                          )}
                         </div>
-                        <div>
-                          <div className="text-white font-medium">{user.username}</div>
-                          <div className="text-gray-400 text-xs">{user.isOnline ? '🟢 Online' : '⚫ Offline'}</div>
+                        <div className="flex-1">
+                          <div className="text-white font-medium hover:text-green-400 transition">{user.username}</div>
+                          {user.about && <div className="text-gray-400 text-xs italic">{user.about}</div>}
                         </div>
                       </div>
                     </div>
@@ -2604,68 +3568,272 @@ export default function Message({ groupName }: { groupName?: string | null }) {
               )}
             </div>
           )}
-            {postContent && (
-              <div className="mt-2 border rounded p-2 bg-gray-100">
-                <textarea
-                  value={postContent}
-                  onChange={(e) => setPostContent(e.target.value)}
-                  placeholder="What's on your mind?"
-                  className="w-full p-2 border rounded text-black"
-                  rows={3}
-                />
-                <div className="mt-2">
-                  <input
-                    type="file"
-                    accept="image/*,video/*"
-                    onChange={handlePostImageChange}
-                    className="hidden"
-                    id="post-image"
-                  />
-                  <label htmlFor="post-image" className="inline-flex items-center px-3 py-1 bg-blue-600 text-white rounded cursor-pointer">
-                    Choose file
-                  </label>
-                  {postImage && <div className="text-sm text-gray-500 mt-2">Selected: {postImage.name}</div>}
+            {isPostComposerOpen && (
+              <div className="mt-4 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+                <div className="flex items-center justify-between gap-3 bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="h-9 w-9 flex-shrink-0 rounded-full bg-white/15 ring-1 ring-white/20 flex items-center justify-center text-white font-bold">
+                      {postAnonymous ? '🕶️' : (me?.username?.[0]?.toUpperCase() || 'U')}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-white font-semibold leading-tight">Create a post</div>
+                      <div className="text-xs text-white/80 truncate">
+                        {postAnonymous ? 'Posting anonymously' : `Posting as @${me?.username || 'me'}`}
+                        {postPrivate ? ' • Followers only' : ' • Public'}
+                        {postIsLocked ? ' • Locked' : ''}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setIsPostComposerOpen(false);
+                      resetPostComposer();
+                    }}
+                    className="h-9 w-9 flex-shrink-0 rounded-full bg-white/15 text-white hover:bg-white/25 transition"
+                    title="Close"
+                    aria-label="Close composer"
+                  >
+                    ✕
+                  </button>
                 </div>
-                <div className="mt-2">
-                  <label className="block text-sm font-medium mb-1 text-black">Attach song </label>
-                  <div className="space-y-2 max-h-60 overflow-y-auto">
-                    {publicSongs.map((name) => {
-                      const songUrl = `/${encodeURIComponent(name)}`;
-                      return (
-                        <SongSelector
-                          key={name}
-                          songUrl={songUrl}
-                          songName={name}
-                          isSelected={postSong === songUrl}
-                          onSelect={() => setPostSong(songUrl)}
-                          postImage={postImage}
+ 
+                <div className="p-4 space-y-4">
+                  <div>
+                    <textarea
+                      ref={postComposerTextareaRef}
+                      value={postContent}
+                      onChange={(e) => setPostContent(e.target.value)}
+                      placeholder="What's on your mind?"
+                      className="w-full min-h-[110px] rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-gray-900 placeholder-gray-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      rows={4}
+                    />
+                    <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
+                      <span>{postContent.trim().length > 0 ? `${postContent.trim().length} characters` : 'Tip: add a photo/video or a song to make it stand out'}</span>
+                      {(postPrivate || postAnonymous || postIsLocked) && (
+                        <span className="text-gray-600">
+                          {postPrivate ? 'Followers only' : 'Public'}
+                          {postIsLocked ? ' • Locked' : ''}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+ 
+                  <div className="flex flex-col gap-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                      <div className="flex items-center gap-3">
+                        <input
+                          ref={postImageInputRef}
+                          type="file"
+                          accept="image/*,video/*"
+                          onChange={handlePostImageChange}
+                          className="sr-only"
+                          id="post-image"
                         />
-                      );
-                    })}
+                        <label
+                          htmlFor="post-image"
+                          className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium shadow-sm transition ${
+                            postLoading ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-gray-900 text-white hover:bg-gray-800 cursor-pointer'
+                          }`}
+                        >
+                          📎 Attach media
+                        </label>
+                        {postImage && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPostImage(null);
+                              try {
+                                if (postImageInputRef.current) postImageInputRef.current.value = '';
+                              } catch {}
+                            }}
+                            className="text-sm text-gray-600 hover:text-gray-900 underline underline-offset-2"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+ 
+                      <div className="flex-1 min-w-0">
+                        {postImage ? (
+                          <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2">
+                            <div className="h-9 w-9 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                              {postImage.type.startsWith('video/') ? '🎬' : '🖼️'}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium text-gray-900 truncate">{postImage.name}</div>
+                              <div className="text-xs text-gray-500">{(postImage.size / 1024 / 1024).toFixed(1)} MB</div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-sm text-gray-500">Optional: upload an image or video</div>
+                        )}
+                      </div>
+                    </div>
+ 
+                    {postImagePreviewUrl && postImage && (
+                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                        {postImage.type.startsWith('video/') ? (
+                          <video src={postImagePreviewUrl} controls className="w-full max-h-72 rounded-lg bg-black" />
+                        ) : (
+                          <img src={postImagePreviewUrl} alt="Selected media preview" className="w-full max-h-72 object-contain rounded-lg bg-white" />
+                        )}
+                      </div>
+                    )}
+                  </div>
+ 
+                  <div className="rounded-xl border border-gray-200 bg-white">
+                    <div className="flex items-center justify-between gap-3 border-b border-gray-200 bg-gray-50 px-3 py-2">
+                      <div className="text-sm font-medium text-gray-900">Attach a song</div>
+                      {postSong && (
+                        <button
+                          type="button"
+                          onClick={() => setPostSong('')}
+                          className="text-xs text-gray-600 hover:text-gray-900 underline underline-offset-2"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <div className="p-3">
+                      <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                        {publicSongs.map((name) => {
+                          const songUrl = `/${encodeURIComponent(name)}`;
+                          return (
+                            <SongSelector
+                              key={name}
+                              songUrl={songUrl}
+                              songName={name}
+                              isSelected={postSong === songUrl}
+                              onSelect={() => setPostSong(songUrl)}
+                              postImage={postImage}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+ 
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label
+                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition cursor-pointer select-none ${
+                        postAnonymous ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      <input type="checkbox" checked={postAnonymous} onChange={(e) => setPostAnonymous(e.target.checked)} className="h-4 w-4 accent-amber-600" />
+                      Anonymous
+                    </label>
+ 
+                    <label
+                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition cursor-pointer select-none ${
+                        postPrivate ? 'bg-blue-50 border-blue-300 text-blue-900' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      <input type="checkbox" checked={postPrivate} onChange={(e) => setPostPrivate(e.target.checked)} className="h-4 w-4 accent-blue-600" />
+                      Followers only
+                    </label>
+ 
+                    <label
+                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition cursor-pointer select-none ${
+                        postIsLocked ? 'bg-purple-50 border-purple-300 text-purple-900' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      <input type="checkbox" checked={postIsLocked} onChange={(e) => setPostIsLocked(e.target.checked)} className="h-4 w-4 accent-purple-600" />
+                      🔒 Lock post
+                    </label>
+ 
+                    {postIsLocked && (
+                      <div className="flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1.5 text-sm">
+                        <span className="text-purple-900">Price (₹)</span>
+                        <input
+                          type="number"
+                          min="1"
+                          value={postLockedPrice}
+                          onChange={(e) => setPostLockedPrice(Number(e.target.value))}
+                          className="w-20 rounded-lg border border-purple-200 bg-white px-2 py-1 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                          placeholder="0"
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
-                <div className="mt-2">
-                  <div className="flex items-center gap-3">
-                    <label className="inline-flex items-center text-sm text-gray-700">
-                      <input type="checkbox" checked={postAnonymous} onChange={(e) => setPostAnonymous(e.target.checked)} className="mr-2" />
-                      Post anonymously
-                    </label>
-
-                    <span className="ml-2">{postAnonymous ? '⚠️' : me?.username}</span>
-                    <button onClick={createPost} disabled={postLoading} className="px-3 py-1 bg-green-600 text-white rounded disabled:opacity-50">
-                    {postLoading ? 'Posting...' : 'Post'}
-                    </button>
-                  </div>
-                  <button onClick={() => { setPostContent(''); setPostImage(null); setPostSong(''); }} className="ml-2 px-3 py-1 bg-gray-200 rounded text-black">
+ 
+                <div className="flex items-center justify-between gap-3 border-t border-gray-200 bg-gray-50 px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetPostComposer();
+                      setIsPostComposerOpen(false);
+                    }}
+                    className="rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-100 transition"
+                  >
                     Clear
+                  </button>
+                  <button
+                    onClick={createPost}
+                    disabled={postLoading}
+                    className="rounded-full bg-gradient-to-r from-green-600 to-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                  >
+                    {postLoading ? 'Posting...' : 'Post'}
                   </button>
                 </div>
               </div>
             )}
 
           <div className="mt-4 space-y-4">
-            {selectedPostUsername && (
-              <div className="p-3 bg-blue-50 border  text-black border-blue-200 rounded text-sm">
+            {/* Profile Header for Searched User */}
+            {selectedPostUsername && selectedUserProfile && (
+              <div className="bg-gradient-to-tr from-blue-500 via-purple-500 to-pink-500 p-6 rounded shadow border border-transparent">
+                <div className="flex items-center gap-4 mb-4">
+                  {/* Profile Picture */}
+                  <div className="relative w-20 h-20 flex-shrink-0">
+                    {selectedUserProfile?.profilePicture ? (
+                      <img
+                        key={selectedUserProfile?.profilePicture}
+                        src={resolveMediaUrl(selectedUserProfile.profilePicture)}
+                        alt={selectedUserProfile?.name}
+                        className="w-full h-full rounded-full object-cover border-2 border-blue-500"
+                      />
+                    ) : (
+                      <img
+                        src={defaultInfinityLogo}
+                        alt="Infinity Logo"
+                        className="w-full h-full rounded-full object-cover border-2 border-blue-500"
+                      />
+                    )}
+                    {/* Online Indicator */}
+                    {selectedUserProfile?.isOnline && (
+                      <div className="absolute bottom-0 right-0 w-4 h-4 bg-green-500 rounded-full border-2 border-white"></div>
+                    )}
+                  </div>
+
+                  {/* User Info */}
+                  <div className="flex-1">
+                    <div className="text-lg text-blue-600 font-semibold">@{selectedUserProfile?.username}</div>
+                    <div className="text-white">{selectedUserProfile?.name}</div>
+                    {selectedUserProfile?.about && (
+                      <div className="text-sm text-red-500 mt-2 italic">{selectedUserProfile.about}</div>
+                    )}
+                    {/* <div className="text-sm text-white mt-2">
+                      Status: {selectedUserProfile?.isOnline ? 'Online' : 'Offline'}
+                    </div> */}
+                    <div className="text-sm text-grey-300">
+                      Joined: {selectedUserProfile?.createdAt ? new Date(selectedUserProfile.createdAt).toLocaleDateString() : 'N/A'}
+                    </div>
+                  </div>
+
+                  {/* View Full Profile Button */}
+                  {/* <button
+                    onClick={() => window.location.pathname = `/profile/${selectedUserProfile?._id}`}
+                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  >
+                    View Profile
+                  </button> */}
+                </div>
+              </div>
+            )}
+
+            {selectedPostUsername && !selectedUserProfile && (
+              <div className="p-3 bg-blue-50 border text-black border-blue-200 rounded text-sm">
                 <strong>Posts by @{selectedPostUsername}</strong>
                 {postSearchResults.length === 0 && <p className="text-gray-600 mt-1">No posts found</p>}
               </div>
@@ -2692,20 +3860,85 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                 <div
                   key={post._id}
                   //  className="border rounded-lg p-4 bg-white relative"
-                   className="border rounded-lg p-4 bg-black relative"
-                  onMouseEnter={() => handlePostHover(post, true)}
-                  onMouseLeave={() => handlePostHover(post, false)}
+                   className="rounded-lg p-4 bg-black relative overflow-visible" // allow kebab menu to overflow
+                  ref={registerPostCardEl(String(post._id || post.id || ''))}
                 >
+                  {/* Floating Emoji Animations */}
+                  {floatingEmojis.map((floatingEmoji) => {
+                    if (floatingEmoji.postId !== post._id) return null;
+                    return (
+                      <div
+                        key={floatingEmoji.id}
+                        className="absolute pointer-events-none text-4xl font-bold"
+                        style={{
+                          animation: `floatUp 2s ease-in forwards`,
+                          left: '50%',
+                          bottom: '20px',
+                          zIndex: 40,
+                          transform: 'translateX(-50%)',
+                        }}
+                      >
+                        {floatingEmoji.emoji}
+                      </div>
+                    );
+                  })}
+
+                  <style>{`
+                    @keyframes floatUp {
+                      0% {
+                        opacity: 1;
+                        transform: translateY(0) scale(1);
+                      }
+                      100% {
+                        opacity: 0;
+                        transform: translateY(-120px) scale(1.5);
+                      }
+                    }
+                  `}</style>
                   
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
                     {/* <div className="font-semibold text-blue-500"><h1>{post.user?.name || 'Unknown'} ---------</h1></div> */}
-                    <div className='flex  gap-2'>
+                    <div className='flex items-center gap-2'>
+                      <div
+                        className={`relative w-9 h-9 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden border border-blue-500 flex-shrink-0 ${
+                          !isAnonymousPost && post.user?.profilePicture ? 'cursor-pointer hover:opacity-90' : ''
+                        }`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!isAnonymousPost && post.user?.profilePicture) {
+                            setZoomedProfilePicSrc(resolveMediaUrl(post.user.profilePicture));
+                          }
+                        }}
+                        title={!isAnonymousPost && post.user?.profilePicture ? 'View profile picture' : undefined}
+                      >
+                        <img
+                          src={
+                            !isAnonymousPost && post.user?.profilePicture
+                              ? resolveMediaUrl(post.user.profilePicture)
+                              : defaultInfinityLogo
+                          }
+                          alt="avatar"
+                          className="absolute inset-0 w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).src = defaultInfinityLogo;
+                          }}
+                          loading="lazy"
+                        />
+                      </div>
                       {isAnonymousPost ? (
                         <span className='text-red-600 font-semibold'>⚠️ Anonymous</span>
                       ) : (
-                        <h1 className='text-blue-500 cursor-pointer hover:underline' onClick={() => window.location.pathname = `/profile/${post.user?._id || post.user?.id}`}>
-                          ~~(@{post.user?.username || 'unknown'})
+                        <h1
+                          className='text-blue-500 cursor-pointer hover:underline'
+                          onClick={() => {
+                            const uname = String(post.user?.username || '').trim();
+                            const uid = String(post.user?._id || post.user?.id || '').trim();
+                            openUserPosts(uname, uid || undefined);
+                            try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
+                          }}
+                        >
+                          @{post.user?.username || 'unknown'}
                         </h1>
                       )}
                       {/* <h2 className="text-sm text-gray-500 py-1" >{post.createdAt ? formatDistanceToNow(new Date(post.createdAt), { addSuffix: true }) : 'No date'}</h2> */}
@@ -2713,20 +3946,20 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                         <button 
                           onClick={() => toggleFollowUser(postUserId)}
                           disabled={loadingFollows[postUserId]}
-                          className={`px-2 py-1 rounded text-white transition ${
+                          className={`px-1.5 py-0.5 rounded-md text-xs leading-4 whitespace-nowrap text-white transition ${
                             followedUsers.has(postUserId) 
-                              ? 'bg-red-500 hover:bg-red-600' 
-                              : 'bg-blue-500 hover:bg-blue-600'
+                              ? ' border border-red-700' 
+                              : ' border border-blue-700'
                           } disabled:opacity-50 disabled:cursor-not-allowed`}
                         >
                           {loadingFollows[postUserId] ? '...' : (
-                            followedUsers.has(postUserId) ? 'Unfollow' : 'Follow'
+                            followedUsers.has(postUserId) ? 'following' : 'Follow'
                           )}
                         </button>
                       )}
                     </div>
                     <div className="text-sm text-gray-500">{post.createdAt ? formatDistanceToNow(new Date(post.createdAt), { addSuffix: true }) : 'No date'}</div>
-                    <p className="mt-0 text-black">{post.content}</p>
+                    <p className="mt-0 text-white">{post.content}</p>
                   </div>
                   <div className="flex items-center gap-2 relative z-20">
                     {post.songUrl && (
@@ -2740,7 +3973,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                     )}
                     <button onClick={() => setMenuOpen(menuOpen === post._id ? null : post._id)} className="px-2 py-1 text-gray-500 hover:text-gray-700 z-20 relative">⋮</button>
                     {menuOpen === post._id && (
-                      <div className="absolute right-0 mt-1 w-32 bg-white border rounded shadow z-10">
+                      <div className="absolute right-0 mt-1 w-36 bg-white border rounded shadow z-50">
                         {String(post.user?._id || post.user?.id) === String(myId) ? (
                           <button onClick={() => {
                             deletePost(post._id);
@@ -2764,25 +3997,43 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                             >
                               Report Post
                             </button>
-                            {!isAnonymousPost && String(post.user?._id || post.user?.id || '') && (
-                              <button
-                                onClick={() => {
-                                  openReportDialog({
-                                    type: 'user',
-                                    userId: String(post.user?._id || post.user?.id),
-                                    username: String(post.user?.username || ''),
-                                  });
-                                  setMenuOpen(null);
-                                }}
-                                className="block w-full text-left px-3 py-2 hover:bg-gray-100 text-red-700"
-                              >
-                                Report User
-                              </button>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    )}
+                             {!isAnonymousPost && String(post.user?._id || post.user?.id || '') && (
+                               <button
+                                 onClick={() => {
+                                   openReportDialog({
+                                     type: 'user',
+                                     userId: String(post.user?._id || post.user?.id),
+                                     username: String(post.user?.username || ''),
+                                   });
+                                   setMenuOpen(null);
+                                 }}
+                                 className="block w-full text-left px-3 py-2 hover:bg-gray-100 text-red-700"
+                               >
+                                 Report User
+                               </button>
+                             )}
+                             {!isAnonymousPost && postUserId && (
+                               <button
+                                 onClick={async () => {
+                                   try {
+                                     if (blockedUsers.has(postUserId)) {
+                                       await handleUnblockUser(postUserId);
+                                     } else {
+                                       await handleBlockUser(postUserId);
+                                     }
+                                   } finally {
+                                     setMenuOpen(null);
+                                   }
+                                 }}
+                                 className="block w-full text-left px-3 py-2 hover:bg-gray-100 text-gray-900"
+                               >
+                                 {blockedUsers.has(postUserId) ? 'Unblock User' : 'Block User'}
+                               </button>
+                             )}
+                           </>
+                         )}
+                       </div>
+                     )}
                   </div>
                 </div>
 
@@ -2796,25 +4047,40 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                         ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}v=${retry}`
                         : baseUrl;
                       const isVideo = src.match(/\.(mp4|webm|ogg|mov|m4v)(\?|$)/i);
+                      const isLocked = post.isContentLocked;
 
-                      return isVideo ? (
-                        <video
-                          src={src}
-                          controls
-                          className="w-full h-auto max-h-[60vh] object-contain"
-                          onError={() => {
-                            if (!retry) setPostMediaRetry((prev) => ({ ...prev, [pid]: Date.now() }));
-                          }}
-                        />
-                      ) : (
-                        <img
-                          src={src}
-                          alt="Post"
-                          className="w-full h-auto max-h-[60vh] object-contain"
-                          onError={() => {
-                            if (!retry) setPostMediaRetry((prev) => ({ ...prev, [pid]: Date.now() }));
-                          }}
-                        />
+                      return (
+                        <div className={`${isLocked ? 'blur-3xl' : ''}`}>
+                          {isVideo ? (
+                            <video
+                              src={src}
+                              controls
+                              className={`w-full h-auto max-h-[60vh] object-contain ${!isLocked ? 'cursor-zoom-in' : ''}`}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (!isLocked) setZoomedPostMedia({ src, kind: 'video' });
+                              }}
+                              onError={() => {
+                                if (!retry) setPostMediaRetry((prev) => ({ ...prev, [pid]: Date.now() }));
+                              }}
+                            />
+                          ) : (
+                            <img
+                              src={src}
+                              alt="Post"
+                              className={`w-full h-auto max-h-[60vh] object-contain ${!isLocked ? 'cursor-zoom-in' : ''}`}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (!isLocked) setZoomedPostMedia({ src, kind: 'image' });
+                              }}
+                              onError={() => {
+                                if (!retry) setPostMediaRetry((prev) => ({ ...prev, [pid]: Date.now() }));
+                              }}
+                            />
+                          )}
+                        </div>
                       );
                     })()}
                     <button
@@ -2826,6 +4092,36 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                     >
                       💬
                     </button>
+                    {post.isLocked && (
+                      <div className="absolute top-2 right-2 text-yellow-300 text-2xl bg-gray-800 bg-opacity-75 rounded-full p-2 border border-yellow-300 z-10 shadow-xl">
+                        🔒
+                      </div>
+                    )}
+
+                    {/* Lock overlay only on media (keep username/profile visible) */}
+                    {post.isContentLocked && (
+                      <div className="absolute inset-0 z-30">
+                        <div className="absolute inset-0 bg-black/70 backdrop-blur-[1px]" />
+                        <div className="relative h-full w-full flex items-center justify-center p-4">
+                          <div className="w-full max-w-sm p-4 bg-yellow-100 border border-yellow-400 rounded text-center shadow-xl">
+                            <p className="text-gray-800 font-semibold mb-3">🔒 This post is locked</p>
+                            <p className="text-gray-700 mb-3 text-sm">Pay ₹{post.lockedPrice} to unlock this post</p>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleUnlockPost(post._id);
+                              }}
+                              disabled={unlockInitiating}
+                              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {unlockInitiating ? 'Please wait...' : '💳 Pay to Unlock'}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
                 <div className="mt-3 flex items-center gap-2 flex-nowrap overflow-x-auto bg-black">
@@ -2837,16 +4133,16 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                       <>
                         <div className="flex items-center gap-1 flex-shrink-0">
                           <button 
-                            onClick={() => handleEmojiReaction(post._id, '😍')} 
-                            disabled={hasReacted && userEmoji !== '😍'}
+                            onClick={() => handleEmojiReaction(post._id, '❤️')} 
+                            disabled={hasReacted && userEmoji !== '❤️'}
                             className={`px-2 py-1 rounded text-2xl transition ${
-                              userEmoji === '😍' ? 'bg-red-200' : 'hover:bg-red-100'
-                            } ${hasReacted && userEmoji !== '😍' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              userEmoji === '❤️' ? 'bg-red-200' : 'hover:bg-red-100'
+                            } ${hasReacted && userEmoji !== '❤️' ? 'opacity-50 cursor-not-allowed' : ''}`}
                           >
-                            😍
+                            ❤️
                           </button>
                           <div className=" rounded px-1 py-1 min-w-[10px] text-center text-lg font-semibold flex-shrink-0">
-                            {post.reactions?.['😍'] || 0}
+                            {post.reactions?.['❤️'] || 0}
                           </div>
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0">
@@ -3043,6 +4339,328 @@ export default function Message({ groupName }: { groupName?: string | null }) {
               <li>⏭️ Skip to meet another user if not interested</li>
               <li>💬 Start chatting with users you like!</li>
             </ul>
+          </div>
+        </div>
+      )}
+
+      {unlockDialog && (
+        <div
+          className="fixed inset-0 z-[9997] bg-black/70 flex items-center justify-center p-4"
+          onClick={() => setUnlockDialog(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="w-full max-w-md bg-white rounded-lg shadow-2xl p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-lg font-semibold text-black">Unlock Post</div>
+                <div className="text-sm text-gray-600">Amount: ₹{unlockDialog.amount}</div>
+              </div>
+              <button
+                type="button"
+                className="w-10 h-10 rounded-full bg-gray-100 text-black hover:bg-gray-200 flex items-center justify-center text-xl"
+                onClick={() => setUnlockDialog(null)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            {unlockDialog.upiVpa && (
+              <div className="mt-4 p-3 border rounded bg-yellow-50">
+                <div className="text-sm font-semibold text-gray-800">UPI (Receiver)</div>
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <div className="text-sm text-gray-700 break-all">{unlockDialog.upiVpa}</div>
+                  <button
+                    type="button"
+                    className="px-2 py-1 bg-gray-200 rounded text-sm text-black hover:bg-gray-300"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(String(unlockDialog.upiVpa));
+                        setMsg('UPI ID copied');
+                      } catch {
+                        setMsg('Copy failed');
+                      }
+                    }}
+                  >
+                    Copy
+                  </button>
+                </div>
+                <div className="mt-1 text-xs text-gray-600">
+                  Choose UPI below to pay and unlock instantly.
+                </div>
+              </div>
+            )}
+
+            <div className="mt-4 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => startUnlockPayment({ upi: true })}
+                disabled={!unlockDialog.key}
+                className="w-full px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 font-semibold disabled:opacity-50"
+              >
+                UPI Pay to Unlock
+              </button>
+              <button
+                type="button"
+                onClick={() => startUnlockPayment()}
+                disabled={!unlockDialog.key}
+                className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-semibold disabled:opacity-50"
+              >
+                Other Methods
+              </button>
+              <button
+                type="button"
+                onClick={() => setUnlockDialog(null)}
+                className="w-full px-4 py-2 bg-gray-200 text-black rounded hover:bg-gray-300"
+              >
+                Cancel
+              </button>
+              {!unlockDialog.key && (
+                <div className="text-xs text-red-600">
+                  Payments are not configured (missing Razorpay key). Set `RAZORPAY_KEY_ID` on the backend.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showMyProfileModal && (
+        <div
+          className="fixed inset-0 z-[9998] bg-black/70 flex items-center justify-center p-4"
+          onClick={() => setShowMyProfileModal(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="w-full max-w-lg bg-white rounded-lg shadow-2xl p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-lg font-semibold text-black">My Profile</div>
+                <div className="text-xs text-gray-500">Press Esc to close</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  className="w-10 h-10 rounded-full bg-yellow-500 text-white hover:bg-yellow-600 flex items-center justify-center"
+                  onClick={() => {
+                    setShowMyProfileModal(false);
+                    window.location.pathname = '/message/payment';
+                  }}
+                  aria-label="Payments"
+                  title="Payments"
+                  type="button"
+                >
+                  <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+                    <circle cx="12" cy="12" r="6.5" stroke="currentColor" strokeWidth="1.5" opacity="0.8" />
+                    <path
+                      d="M9.2 10.3c.3-1.2 1.4-2 2.8-2 1.6 0 2.8 1 2.8 2.4 0 1.3-1 2.1-2.6 2.3l-1.1.2c-1.1.2-1.9.7-1.9 1.7 0 1.1 1 1.9 2.5 1.9 1.3 0 2.3-.6 2.7-1.6"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+                <button
+                  className="w-10 h-10 rounded-full bg-gray-100 text-black hover:bg-gray-200 flex items-center justify-center text-xl"
+                  onClick={() => setShowMyProfileModal(false)}
+                  aria-label="Close"
+                  type="button"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            {myProfileLoading ? (
+              <div className="mt-4 text-gray-700">Loading...</div>
+            ) : myProfileError ? (
+              <div className="mt-4 text-red-600 text-sm">{myProfileError}</div>
+            ) : (
+              <div className="mt-4">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`relative w-16 h-16 rounded-full bg-gray-300 flex items-center justify-center overflow-hidden border border-gray-400 flex-shrink-0 ${
+                      myProfile?.profilePicture ? 'cursor-pointer hover:opacity-90' : ''
+                    }`}
+                    onClick={() => {
+                      if (myProfile?.profilePicture) {
+                        setZoomedProfilePicSrc(resolveMediaUrl(myProfile.profilePicture));
+                      }
+                    }}
+                    title={myProfile?.profilePicture ? 'View profile picture' : undefined}
+                  >
+                    <span className="text-xl font-bold text-gray-700">
+                      {(myProfile?.username || 'U').charAt(0).toUpperCase()}
+                    </span>
+                    {myProfile?.profilePicture && (
+                      <img
+                        src={resolveMediaUrl(myProfile.profilePicture)}
+                        alt={myProfile?.username || 'me'}
+                        className="absolute inset-0 w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).style.display = 'none';
+                        }}
+                        loading="lazy"
+                      />
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        myProfilePicInputRef.current?.click();
+                      }}
+                      className="absolute bottom-0 right-0 m-0.5 w-7 h-7 rounded-full bg-blue-600 text-white shadow flex items-center justify-center hover:bg-blue-700"
+                      title="Change profile picture"
+                      disabled={isUploadingMyProfilePic}
+                    >
+                      📷
+                    </button>
+                    <input
+                      ref={myProfilePicInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleMyProfilePictureChange}
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-blue-600 font-semibold truncate">@{myProfile?.username}</div>
+                    <div className="text-gray-700 truncate">{myProfile?.name}</div>
+                    <div className="text-xs text-gray-500">
+                      Joined: {myProfile?.createdAt ? new Date(myProfile.createdAt).toLocaleDateString() : '-'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <div className="text-sm font-semibold text-gray-800 mb-1">Bio</div>
+                  <textarea
+                    value={myBioDraft}
+                    onChange={(e) => setMyBioDraft(e.target.value)}
+                    maxLength={280}
+                    rows={4}
+                    className="w-full p-2 border rounded text-black text-sm"
+                    placeholder="Write something about you..."
+                  />
+                  <div className="mt-2 flex items-center justify-between">
+                    <div className="text-xs text-gray-500">{String(myBioDraft || '').trim().length}/280</div>
+                    <button
+                      onClick={saveMyBio}
+                      disabled={myProfileSavingBio}
+                      className="px-3 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {myProfileSavingBio ? 'Saving...' : 'Save Bio'}
+                    </button>
+                  </div>
+                </div>
+
+                {myProfilePicError && (
+                  <div className="mt-2 text-red-600 text-sm">{myProfilePicError}</div>
+                )}
+                {isUploadingMyProfilePic && (
+                  <div className="mt-2 text-blue-700 text-sm">Uploading profile picture...</div>
+                )}
+
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <div className="text-sm text-gray-700">
+                    Followers: {loadingFollowersList ? '...' : followers.length} · Following:{' '}
+                    {loadingFollowersList ? '...' : following.length}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        const next = !viewingOwnPosts;
+                        setMyPostsView(next);
+                        setShowMyProfileModal(false);
+                      }}
+                      className="px-3 py-2 bg-purple-600 text-white rounded text-sm hover:bg-purple-700"
+                      title="Toggle viewing your own posts + followers/following"
+                    >
+                      {viewingOwnPosts ? 'Hide My Posts' : 'View My Posts'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setMyPostsView(true);
+                        setShowMyProfileModal(false);
+                      }}
+                      className="px-3 py-2 bg-gray-800 text-white rounded text-sm hover:bg-gray-900"
+                      title="Open followers/following list"
+                    >
+                      Followers
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {zoomedPostMedia && (
+        <div
+          className="fixed inset-0 z-[10000] bg-black/90 flex items-center justify-center p-4 max-[450px]:p-0"
+          onClick={() => setZoomedPostMedia(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="relative max-w-[95vw] max-h-[95vh] w-full max-[450px]:max-w-[100vw] max-[450px]:max-h-[100vh]" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => setZoomedPostMedia(null)}
+              className="absolute top-3 right-3 min-[451px]:-top-3 min-[451px]:-right-3 w-10 h-10 rounded-full bg-white text-black shadow flex items-center justify-center text-xl hover:bg-gray-100"
+              aria-label="Close"
+              type="button"
+            >
+              ×
+            </button>
+            {zoomedPostMedia.kind === 'video' ? (
+              <video
+                src={zoomedPostMedia.src}
+                controls
+                autoPlay
+                className="max-w-[95vw] max-h-[95vh] w-full h-full object-contain rounded-lg shadow-2xl max-[450px]:max-w-none max-[450px]:max-h-none max-[450px]:w-screen max-[450px]:h-screen max-[450px]:rounded-none"
+                onError={() => setZoomedPostMedia(null)}
+              />
+            ) : (
+              <img
+                src={zoomedPostMedia.src}
+                alt="Post media"
+                className="max-w-[95vw] max-h-[95vh] object-contain rounded-lg shadow-2xl mx-auto max-[450px]:max-w-none max-[450px]:max-h-none max-[450px]:w-screen max-[450px]:h-screen max-[450px]:rounded-none"
+                onError={() => setZoomedPostMedia(null)}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {zoomedProfilePicSrc && (
+        <div
+          className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setZoomedProfilePicSrc('')}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="relative max-w-[92vw] max-h-[92vh]" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => setZoomedProfilePicSrc('')}
+              className="absolute -top-3 -right-3 w-10 h-10 rounded-full bg-white text-black shadow flex items-center justify-center text-xl hover:bg-gray-100"
+              aria-label="Close"
+            >
+              ×
+            </button>
+            <img
+              src={zoomedProfilePicSrc}
+              alt="Profile"
+              className="max-w-[92vw] max-h-[92vh] object-contain rounded-lg shadow-2xl"
+              onError={() => setZoomedProfilePicSrc('')}
+            />
           </div>
         </div>
       )}

@@ -3,6 +3,8 @@ import mongoose from 'mongoose';
 import User from '../models/User.js';
 import Follower from '../models/Follower.js';
 import { AuthRequest } from '../middleware/auth.js';
+import { getBlockedUserIdsForViewer, isEitherUserBlocked } from '../utils/blocking.js';
+import { createNotification } from './notificationController.js';
 
 export const updateLocation = async (req: AuthRequest, res: Response) => {
   try {
@@ -93,6 +95,8 @@ export const getNearbyUsers = async (req: Request, res: Response) => {
       id: u._id,
       username: u.username,
       name: u.name,
+      profilePicture: u.profilePicture,
+      about: u.about,
       isOnline: u.isOnline,
       distanceMeters: Math.round(u.dist),
       createdAt: u.createdAt,
@@ -112,7 +116,24 @@ export const getRandomUsers = async (req: Request, res: Response) => {
       userId && mongoose.isValidObjectId(userId) ? new mongoose.Types.ObjectId(userId) : undefined;
 
     const matchStage: Record<string, any> = { isOnline: true };
-    if (excludeId) matchStage._id = { $ne: excludeId };
+
+    // Exclude:
+    // - the viewer themself
+    // - anyone the viewer has blocked
+    // - anyone who has blocked the viewer
+    const excludeIds: mongoose.Types.ObjectId[] = [];
+    if (excludeId) excludeIds.push(excludeId);
+
+    if (userId) {
+      const blockedIds = await getBlockedUserIdsForViewer(String(userId));
+      for (const bid of blockedIds) {
+        if (mongoose.isValidObjectId(bid)) {
+          excludeIds.push(new mongoose.Types.ObjectId(bid));
+        }
+      }
+    }
+
+    if (excludeIds.length > 0) matchStage._id = { $nin: excludeIds };
 
     // Get random online users globally
     const results = await User.aggregate([
@@ -136,6 +157,8 @@ export const getRandomUsers = async (req: Request, res: Response) => {
       id: u._id,
       username: u.username,
       name: u.name,
+      profilePicture: u.profilePicture,
+      about: u.about,
       isOnline: u.isOnline,
       createdAt: u.createdAt,
     }));
@@ -166,7 +189,10 @@ export const findUsersByUsername = async (req: AuthRequest, res: Response) => {
 
     const userId = req.user._id;
     const regex = new RegExp(username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-    const users = await User.find({ _id: { $ne: userId }, username: regex }).select('_id username name isOnline').limit(20).lean();
+    const users = await User.find({ _id: { $ne: userId }, username: regex })
+      .select('_id username name profilePicture about isOnline')
+      .limit(20)
+      .lean();
 
     res.json({ users });
   } catch (err) {
@@ -180,8 +206,14 @@ export const getUserProfile = async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     if (!id) return res.status(400).json({ message: 'Missing user id' });
 
-    const user = await User.findById(id).select('_id username name isOnline createdAt').lean();
+    const user = await User.findById(id)
+      .select('_id username name profilePicture about isOnline createdAt totalEarnings withdrawnTotal')
+      .lean();
     if (!user) return res.status(404).json({ message: 'User not found' });
+
+    if (await isEitherUserBlocked(String(req.user._id), String(id))) {
+      return res.status(404).json({ message: 'User not found' });
+    }
 
     res.json({ user });
   } catch (err) {
@@ -200,6 +232,10 @@ export const followUser = async (req: AuthRequest, res: Response) => {
     
     if (userId === targetUserId) return res.status(400).json({ message: 'Cannot follow yourself' });
 
+    if (await isEitherUserBlocked(String(userId), String(targetUserId))) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
     const user = await User.findById(userId);
     const targetUser = await User.findById(targetUserId);
     
@@ -212,6 +248,9 @@ export const followUser = async (req: AuthRequest, res: Response) => {
     // Create follower relationship
     const followerRecord = new Follower({ followerId: userId, followingId: targetUserId });
     await followerRecord.save();
+
+    // Notify target user
+    await createNotification(targetUserId, userId, 'follow');
 
     res.json({ ok: true, message: 'User followed' });
   } catch (err) {
@@ -272,7 +311,7 @@ export const getFollowers = async (req: AuthRequest, res: Response) => {
     
     // Fetch full user details
     const followers = await User.find({ _id: { $in: followerIds } })
-      .select('_id username name isOnline')
+      .select('_id username name profilePicture about isOnline')
       .lean();
     
     res.json({ followers });
@@ -294,10 +333,132 @@ export const getFollowingList = async (req: AuthRequest, res: Response) => {
     
     // Fetch full user details
     const following = await User.find({ _id: { $in: followingIds } })
-      .select('_id username name isOnline')
+      .select('_id username name profilePicture about isOnline')
       .lean();
     
     res.json({ following });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+export const updateProfilePicture = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user._id.toString();
+    const { profilePictureUrl } = req.body;
+
+    if (!profilePictureUrl) {
+      return res.status(400).json({ message: 'Profile picture URL is required' });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { profilePicture: profilePictureUrl },
+      { new: true }
+    ).select('_id username name email profilePicture isOnline').lean();
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.json({ ok: true, user });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+export const updateBio = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user._id.toString();
+    const aboutRaw = (req.body as any)?.about;
+    if (typeof aboutRaw !== 'string') {
+      return res.status(400).json({ message: 'Bio is required' });
+    }
+
+    const about = aboutRaw.trim();
+    if (about.length > 280) {
+      return res.status(400).json({ message: 'Bio must be 280 characters or less' });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { about },
+      { new: true }
+    )
+      .select('_id username name email profilePicture about isOnline createdAt')
+      .lean();
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.json({ ok: true, user });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+export const listBlockedUsers = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = String(req.user._id);
+    const me = await User.findById(userId).select('blockedUsers').lean();
+    const blockedIds = ((me as any)?.blockedUsers || []).map((id: any) => String(id));
+    if (blockedIds.length === 0) return res.json({ blocked: [] });
+
+    const blocked = await User.find({ _id: { $in: blockedIds } })
+      .select('_id username name profilePicture about isOnline')
+      .lean();
+
+    res.json({ blocked });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+export const blockUser = async (req: AuthRequest, res: Response) => {
+  try {
+    const meId = String(req.user._id);
+    const targetId = String(req.params.id || '').trim();
+    if (!targetId) return res.status(400).json({ message: 'Missing user id' });
+    if (!mongoose.isValidObjectId(targetId)) return res.status(400).json({ message: 'Invalid user id' });
+    if (meId === targetId) return res.status(400).json({ message: 'Cannot block yourself' });
+
+    const me = await User.findById(meId);
+    if (!me) return res.status(404).json({ message: 'User not found' });
+
+    const already = (me as any).blockedUsers?.some((id: any) => String(id) === targetId);
+    if (!already) {
+      (me as any).blockedUsers = (me as any).blockedUsers || [];
+      (me as any).blockedUsers.push(targetId);
+      await me.save();
+    }
+
+    res.json({ ok: true, blockedUserId: targetId });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+export const unblockUser = async (req: AuthRequest, res: Response) => {
+  try {
+    const meId = String(req.user._id);
+    const targetId = String(req.params.id || '').trim();
+    if (!targetId) return res.status(400).json({ message: 'Missing user id' });
+    if (!mongoose.isValidObjectId(targetId)) return res.status(400).json({ message: 'Invalid user id' });
+    if (meId === targetId) return res.status(400).json({ message: 'Cannot unblock yourself' });
+
+    const me = await User.findById(meId);
+    if (!me) return res.status(404).json({ message: 'User not found' });
+
+    (me as any).blockedUsers = ((me as any).blockedUsers || []).filter((id: any) => String(id) !== targetId);
+    await me.save();
+
+    res.json({ ok: true, unblockedUserId: targetId });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });

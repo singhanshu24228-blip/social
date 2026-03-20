@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getNightModeStatus, exitNightMode, getNightPosts, createNightPost, uploadFile, getUploadBaseURL, deleteNightPost, createNightRoom, getNightRooms, requestJoinRoom, approveJoinRoom, getRoomDetails, postRoomComment, getRoomComments, canSendMediaInRoom, addNightPostReaction, addNightPostComment } from '../services/api';
+import { getNightModeStatus, exitNightMode, getNightPosts, createNightPost, uploadFile, getUploadBaseURL, deleteNightPost, createNightRoom, getNightRooms, joinNightRoom, verifyNightRoomEntryPayment, getRoomDetails, postRoomComment, getRoomComments, canSendMediaInRoom, addNightPostReaction, addNightPostComment } from '../services/api';
 import Post from './Post';
 import RoomView from './RoomView';
 
@@ -36,6 +36,8 @@ const NightInterface: React.FC<NightInterfaceProps> = ({ onExitNightMode }) => {
   const [showRoomModal, setShowRoomModal] = useState(false);
   const [roomName, setRoomName] = useState('');
   const [creatingRoom, setCreatingRoom] = useState(false);
+  const [roomEntryType, setRoomEntryType] = useState<'free' | 'paid'>('free');
+  const [roomEntryFee, setRoomEntryFee] = useState<number>(0);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>('');
@@ -193,11 +195,18 @@ const NightInterface: React.FC<NightInterfaceProps> = ({ onExitNightMode }) => {
       setError('Room name is required');
       return;
     }
+    const fee = roomEntryType === 'paid' ? Number(roomEntryFee || 0) : 0;
+    if (roomEntryType === 'paid' && (!Number.isFinite(fee) || fee <= 0)) {
+      setError('Please enter a valid entry fee');
+      return;
+    }
     setCreatingRoom(true);
     try {
-      const res = await createNightRoom(roomName.trim());
+      const res = await createNightRoom(roomName.trim(), fee);
       console.log('Create room response:', res.data);
       setRoomName('');
+      setRoomEntryType('free');
+      setRoomEntryFee(0);
       setShowRoomModal(false);
       setError('');
       // Optionally: navigate or add to local state
@@ -467,6 +476,43 @@ const NightInterface: React.FC<NightInterfaceProps> = ({ onExitNightMode }) => {
                   placeholder="Enter a room name"
                   autoFocus
                 />
+                <label className="block text-sm text-gray-300 mb-2">Entry</label>
+                <div className="flex gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRoomEntryType('free');
+                      setRoomEntryFee(0);
+                    }}
+                    className={`flex-1 px-3 py-2 rounded-lg border text-sm transition ${
+                      roomEntryType === 'free' ? 'bg-purple-600 border-purple-500 text-white' : 'bg-gray-800 border-purple-500/30 text-gray-200 hover:bg-gray-700'
+                    }`}
+                  >
+                    Free
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRoomEntryType('paid')}
+                    className={`flex-1 px-3 py-2 rounded-lg border text-sm transition ${
+                      roomEntryType === 'paid' ? 'bg-purple-600 border-purple-500 text-white' : 'bg-gray-800 border-purple-500/30 text-gray-200 hover:bg-gray-700'
+                    }`}
+                  >
+                    Paid
+                  </button>
+                </div>
+                {roomEntryType === 'paid' && (
+                  <div className="mb-4">
+                    <label className="block text-sm text-gray-300 mb-2">Entry fee (₹)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={roomEntryFee || ''}
+                      onChange={(e) => setRoomEntryFee(Number(e.target.value))}
+                      className="w-full p-3 bg-gray-800 text-white border border-purple-500/30 rounded-lg"
+                      placeholder="e.g. 10"
+                    />
+                  </div>
+                )}
                 <div className="flex justify-end gap-2">
                   <button
                     type="button"
@@ -702,28 +748,64 @@ function RoomList({ onOpenRoom }: { onOpenRoom: (roomId: string) => void }) {
     return () => { mounted = false };
   }, []);
 
-  const handleRequestJoin = async (roomId: string) => {
-    try {
-      setProcessingRoomId(roomId);
-      await requestJoinRoom(roomId);
-      // reload rooms
-      const res = await getNightRooms();
-      setRooms(res.data.rooms || []);
-    } catch (e) {
-      console.error('Request join failed', e);
-    } finally {
-      setProcessingRoomId(null);
-    }
+  const ensureRazorpayScript = () =>
+    new Promise<void>((resolve, reject) => {
+      if ((window as any).Razorpay) return resolve();
+      const existing = document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]');
+      if (existing) {
+        existing.addEventListener('load', () => resolve());
+        existing.addEventListener('error', () => reject(new Error('Failed to load Razorpay')));
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error('Failed to load Razorpay'));
+      document.body.appendChild(script);
+    });
+
+  const reloadRooms = async () => {
+    const res = await getNightRooms();
+    setRooms(res.data.rooms || []);
   };
 
-  const handleApprove = async (roomId: string, userId: string) => {
+  const handleJoinRoom = async (room: any) => {
+    const roomId = String(room?._id || '');
+    if (!roomId) return;
+
     try {
       setProcessingRoomId(roomId);
-      await approveJoinRoom(roomId, userId);
-      const res = await getNightRooms();
-      setRooms(res.data.rooms || []);
+      const res = await joinNightRoom(roomId);
+
+      if (res.data?.paymentRequired) {
+        await ensureRazorpayScript();
+
+        const options: any = {
+          key: res.data.key,
+          amount: Number(res.data.amount || 0) * 100,
+          currency: 'INR',
+          name: 'Night Room Entry',
+          description: `Entry fee for ${String(room?.name || 'room')}`,
+          order_id: res.data.orderId,
+          handler: async (resp: any) => {
+            await verifyNightRoomEntryPayment(roomId, resp.razorpay_order_id, resp.razorpay_payment_id, resp.razorpay_signature);
+            await reloadRooms();
+          },
+          notes: { roomId },
+          theme: { color: '#a855f7' },
+        };
+
+        const razorpay = new (window as any).Razorpay(options);
+        razorpay.on('payment.failed', (resp: any) => {
+          console.warn('Room entry payment failed', resp);
+        });
+        razorpay.open();
+      } else {
+        await reloadRooms();
+      }
     } catch (e) {
-      console.error('Approve failed', e);
+      console.error('Join failed', e);
     } finally {
       setProcessingRoomId(null);
     }
@@ -737,26 +819,29 @@ function RoomList({ onOpenRoom }: { onOpenRoom: (roomId: string) => void }) {
   return (
     <div className="space-y-3">
       {rooms.map((r) => {
-        const isCreator = currentUser && String(currentUser._id || currentUser.id) === String(r.creator._id || r.creator.id);
         const isParticipant = currentUser && r.participants && r.participants.map((p:any)=>String(p)).includes(String(currentUser._id || currentUser.id));
-        const isPending = currentUser && r.pendingRequests && r.pendingRequests.map((p:any)=>String(p)).includes(String(currentUser._id || currentUser.id));
+        const fee = Number(r?.entryFee || 0);
         return (
           <div key={r._id} className="p-3 bg-gray-800/20 border border-purple-500/20 rounded-lg flex items-center justify-between">
             <div className="flex-1">
               <div className="font-semibold text-purple-300">{r.name}</div>
-              <div className="text-xs text-gray-400">by {r.creator?.name || r.creator?.username}</div>
+              <div className="text-xs text-gray-400 flex items-center gap-2">
+                <span>by {r.creator?.name || r.creator?.username}</span>
+                <span className={`px-2 py-0.5 rounded-full border text-[11px] ${fee > 0 ? 'border-pink-500/40 text-pink-200' : 'border-green-500/40 text-green-200'}`}>
+                  {fee > 0 ? `₹${fee} entry` : 'Free entry'}
+                </span>
+              </div>
             </div>
             <div className="flex items-center gap-2">
-              {isCreator && r.pendingRequests && r.pendingRequests.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-300">Pending: {r.pendingRequests.length}</span>
-                  <button onClick={() => handleApprove(r._id, r.pendingRequests[0])} disabled={processingRoomId===r._id} className="px-3 py-1 bg-green-600 rounded-md text-sm hover:bg-green-500">Approve</button>
-                </div>
+              {!isParticipant && (
+                <button
+                  onClick={() => handleJoinRoom(r)}
+                  disabled={processingRoomId===r._id}
+                  className="px-3 py-1 bg-blue-600 rounded-md text-sm hover:bg-blue-500 disabled:opacity-50"
+                >
+                  {processingRoomId===r._id ? '...' : (fee > 0 ? `Join ₹${fee}` : 'Join')}
+                </button>
               )}
-              {!isParticipant && !isPending && (
-                <button onClick={() => handleRequestJoin(r._id)} disabled={processingRoomId===r._id} className="px-3 py-1 bg-blue-600 rounded-md text-sm hover:bg-blue-500">Join</button>
-              )}
-              {isPending && <span className="text-sm text-yellow-300">Pending</span>}
               {isParticipant && (
                 <button onClick={() => onOpenRoom(r._id)} className="px-3 py-1 bg-purple-600 rounded-md text-sm hover:bg-purple-500">
                   Open

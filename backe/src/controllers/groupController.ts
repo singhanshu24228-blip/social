@@ -24,13 +24,15 @@ export async function deriveAreaAndPincode(lat: number, lng: number): Promise<{ 
 
     // Get postcode from GeoNames
     // const geonamesUrl = `http://api.geonames.org/findNearbyPostalCodesJSON?lat=${lat}&lng=${lng}&username=demo&maxRows=1`;
-    const geonamesUrl =
-  `http://api.geonames.org/findNearbyPostalCodesJSON?lat=${lat}&lng=${lng}&username=${process.env.GEONAMES_USERNAME}&maxRows=1`;
+    const geonamesUser = process.env.GEONAMES_USERNAME;
+    const geonamesUrl = geonamesUser
+      ? `https://api.geonames.org/findNearbyPostalCodesJSON?lat=${lat}&lng=${lng}&username=${geonamesUser}&maxRows=1`
+      : '';
 
-    const geoRes = await fetch(geonamesUrl);
+    const geoRes = geonamesUrl ? await fetch(geonamesUrl) : null;
 
     let postcode = '';
-    if (geoRes.ok) {
+    if (geoRes?.ok) {
       const geoJson = await geoRes.json();
       const postalCodes = geoJson.postalCodes || [];
       if (postalCodes.length > 0) {
@@ -111,9 +113,26 @@ export const ensureGroupsForLocation = async (coords: [number, number], _ensureM
 
 export const listAvailableGroups = async (req: AuthRequest, res: Response) => {
   try {
-    const { lat, lng } = req.query;
-    if (!lat || !lng) return res.status(400).json({ message: 'Missing params' });
-    const coords: [number, number] = [parseFloat(lng as string), parseFloat(lat as string)];
+    // IMPORTANT:
+    // Use the authenticated user's persisted location for both "list" and "join" flows.
+    // Previously the list endpoint used query lat/lng, while join validation used User.location,
+    // which could diverge (e.g. location update failed), causing "group shows but join is forbidden".
+    const authUserId = req.user?._id;
+    let coords: [number, number] | null = null;
+
+    if (authUserId) {
+      const user = await User.findById(authUserId).select('location').lean();
+      if (user?.location?.coordinates?.length === 2) {
+        coords = user.location.coordinates as unknown as [number, number];
+      }
+    }
+
+    // Backward-compatible fallback: allow callers to pass lat/lng only if user has no stored location yet.
+    if (!coords) {
+      const { lat, lng } = req.query;
+      if (!lat || !lng) return res.status(400).json({ message: 'User location required' });
+      coords = [parseFloat(lng as string), parseFloat(lat as string)];
+    }
 
     // Find groups near the user and return at most one per distanceRange (1KM + 2KM).
     // This prevents multiple nearby pincodes/areas from producing many groups in the UI.
@@ -150,8 +169,7 @@ export const listAvailableGroups = async (req: AuthRequest, res: Response) => {
     const uniqueGroups = Array.from(byRange.values()).sort((a: any, b: any) => a.dist - b.dist);
 
     // For each group, determine if user is a member
-    const userId = req.user?._id;
-    const userGroups = await Group.find({ members: userId }).select('_id').lean();
+    const userGroups = await Group.find({ members: authUserId }).select('_id').lean();
     const memberSet = new Set((userGroups || []).map((g: any) => String(g._id)));
 
     const resGroups = uniqueGroups.map((g: any) => ({

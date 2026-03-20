@@ -12,6 +12,10 @@ Run locally:
 
 Notes:
 - Populate `.env` in `backe/` with `MONGODB_URI`, `JWT_SECRET` and (in production) `CLIENT_URL`.
+  - To enable the password reset email flow you should also set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER` and `SMTP_PASS` (or configure an unauthenticated relay). `SMTP_FROM` can be used to customize the sender address.
+  - **Development note:** if you don't configure SMTP locally the OTP won't actually be sent.  In non‑production builds the code will log the one‑time code to the backend console (look for `[email] OTP for ...` or `[auth] generated OTP ...`).  That log entry lets you test reset without a mail server.
+  - A similar mechanism is used for account deletion: `/api/auth/request-delete` will send an OTP and `/api/auth/delete-account` allows the authenticated user to provide their password and OTP to remove their account.
+- You can also request a username change by POSTing `/api/auth/request-username-change` with `{ newUsername }`.  An OTP is emailed, and the user may then POST `/api/auth/change-username` with `{ password, otp }` to finalize the update (availability is checked within 2 km of the user as usual).
 - Frontend uses `VITE_API_URL` if set.
 - Status API now serves a follower-based feed (`GET /api/status/feed`); `/api/status/nearby` is maintained for backwards compatibility.
 - If your frontend and backend are on different domains, cookie auth + CSRF will not work unless you proxy `/api` through the frontend domain (recommended) or you opt into Bearer auth (see below).

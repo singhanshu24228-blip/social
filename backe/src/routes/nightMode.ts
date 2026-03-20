@@ -9,8 +9,8 @@ import {
   deleteNightPost,
   createNightRoom,
   getNightRooms,
-  requestJoinRoom,
-  approveJoinRoom,
+  joinNightRoom,
+  verifyNightRoomEntryPayment,
   getRoomDetails,
   postRoomComment,
   getRoomComments,
@@ -36,8 +36,8 @@ router.post('/posts/:id/react', requireAuth, addNightPostReaction);
 router.post('/posts/:id/comment', requireAuth, addNightPostComment);
 router.post('/rooms', requireAuth, createNightRoom);
 router.get('/rooms', requireAuth, getNightRooms);
-router.post('/rooms/:id/request', requireAuth, requestJoinRoom);
-router.post('/rooms/:id/approve', requireAuth, approveJoinRoom);
+router.post('/rooms/:id/join', requireAuth, joinNightRoom);
+router.post('/rooms/:id/join/verify', requireAuth, verifyNightRoomEntryPayment);
 router.get('/rooms/:id', requireAuth, getRoomDetails);
 router.post('/rooms/:id/comments', requireAuth, postRoomComment);
 router.get('/rooms/:id/comments', requireAuth, getRoomComments);

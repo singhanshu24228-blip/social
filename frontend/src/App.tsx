@@ -4,6 +4,8 @@ import Signup from './pages/Signup';
 import Home from './pages/Home';
 import Message from './pages/Message';
 import Profile from './pages/Profile';
+import Payment from './pages/Payment';
+import Admin from './pages/Admin';
 
 export default function App() {
   const [isLogin, setIsLogin] = useState(false);
@@ -16,17 +18,33 @@ export default function App() {
       user = null;
     }
   }
-  const isMessagePage = path.startsWith('/message');
-  const groupName = isMessagePage && path !== '/message' && path !== '/message/night' ? path.split('/message/')[1] : null;
+  const isPaymentPage = path === '/message/payment';
+  const isMessagePage = path.startsWith('/message') && !isPaymentPage;
+  const messageSubPath = isMessagePage && path.startsWith('/message/') ? path.split('/message/')[1] : null;
+  const groupName =
+    isMessagePage &&
+    path !== '/message' &&
+    path !== '/message/night' &&
+    path !== '/message/chat' &&
+    messageSubPath &&
+    messageSubPath !== 'night' &&
+    messageSubPath !== 'chat'
+      ? messageSubPath
+      : null;
   const isProfilePage = path.startsWith('/profile/');
   const userId = isProfilePage ? path.split('/profile/')[1] : null;
+  const isAdminPage = path === '/admin';
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-neutral-900 text-neutral-900 dark:text-neutral-50">
-      <div className="max-w-md md:max-w-2xl lg:max-w-4xl mx-auto p-4 bg-white dark:bg-neutral-800 rounded-lg shadow-lg">
-        <h1 className=" text-blue-500 text-2xl font-bold mb-4">Social {isMessagePage && user ? `— ${user.username}` : ''}</h1>
-        {isProfilePage ? (
+      <div className={isAdminPage ? 'w-full' : "max-w-md md:max-w-2xl lg:max-w-4xl mx-auto p-4 bg-white dark:bg-neutral-800 rounded-lg shadow-lg"}>
+        {!isAdminPage && <h1 className=" text-blue-500 text-2xl font-bold mb-4">Sociovio {isMessagePage && user ? `— ${user.username}` : ''}</h1>}
+        {isAdminPage ? (
+          <Admin />
+        ) : isProfilePage ? (
           <Profile userId={userId} />
+        ) : isPaymentPage ? (
+          <Payment />
         ) : isMessagePage ? (
           <Message groupName={groupName} />
         ) : (

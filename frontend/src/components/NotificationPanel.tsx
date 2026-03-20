@@ -94,6 +94,7 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
       comment: '💬',
       follow: '👤',
       message: '📨',
+      reaction: '😊',
       mention: '@',
       post: '📸',
     };
@@ -107,6 +108,7 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
       comment: `${username} commented on your post`,
       follow: `${username} followed you`,
       message: `New message from ${username}`,
+      reaction: `${username} reacted to your message`,
       mention: `${username} mentioned you`,
       post: `${username} posted something new`,
     };
@@ -186,7 +188,7 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
                                 {getNotificationText(notification)}
                               </p>
                               {notification.content && (
-                                <p className="text-xs text-white mt-1 truncate">
+                                <p className="text-xs text-black mt-1 truncate">
                                   "{notification.content}"
                                 </p>
                               )}

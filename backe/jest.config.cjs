@@ -7,14 +7,7 @@ module.exports = {
       'ts-jest',
       {
         useESM: true,
-        tsconfig: {
-          target: 'ES2020',
-          module: 'ES2020',
-          moduleResolution: 'node',
-          esModuleInterop: true,
-          strict: true,
-          skipLibCheck: true,
-        },
+        tsconfig: '<rootDir>/tsconfig.json',
         diagnostics: { ignoreCodes: [151002] },
       },
     ],

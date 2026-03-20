@@ -2,11 +2,15 @@ import { Request, Response } from 'express';
 import path from 'path';
 import Post, { IPost } from '../models/Post.js';
 import User from '../models/User.js';
+import Follower from '../models/Follower.js';
 import { createNotification } from './notificationController.js';
 import { calculateScore } from '../utils/yourVoiceAI.js';
 import fs from 'fs';
 import { uploadsDir, frontendPublicDir } from '../utils/paths.js';
 import { isCloudinaryConfigured, uploadFileToCloudinary } from '../utils/cloudinary.js';
+import crypto from 'crypto';
+import UnlockPayment from '../models/UnlockPayment.js';
+import { getBlockedUserIdsForViewer, isEitherUserBlocked } from '../utils/blocking.js';
 
 const isProd = process.env.NODE_ENV === 'production';
 const debugPosts = !isProd && process.env.DEBUG_POSTS?.trim() === 'true';
@@ -17,13 +21,26 @@ const toAbsoluteAssetUrl = (baseUrl: string, url?: string) => {
   if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('data:') || s.startsWith('blob:')) {
     return s;
   }
-  if (s.startsWith('/')) return `${baseUrl}${s}`;
-  return `${baseUrl}/${s}`;
+
+  // Only absolute-ify assets that are actually served by this backend.
+  // In dev, the frontend runs on a different origin (e.g. Vite) and ships "public" songs
+  // like `/Aakh%20talabani.m4a`. Prefixing those with the API baseUrl breaks playback.
+  if (s.startsWith('/uploads/')) return `${baseUrl}${s}`;
+  if (s.startsWith('uploads/')) return `${baseUrl}/${s}`;
+
+  // Some older records may store just the filename; treat those as uploads.
+  if (!s.includes('/') && /\.(png|jpe?g|gif|webp|mp4|webm|ogg|mov|m4v|mp3|m4a|wav|aac|flac)$/i.test(s)) {
+    return `${baseUrl}/uploads/${s}`;
+  }
+
+  // For any other leading-slash paths (e.g. frontend public assets), keep as-is so the
+  // browser loads from the current origin.
+  return s;
 };
 
 export const createPost = async (req: Request, res: Response) => {
   try {
-    const { content, anonymous } = req.body;
+    const { content, anonymous, isPrivate, isLocked, lockedPrice } = req.body;
     const userId = (req as any).user._id;
     if (debugPosts) {
       console.log('Backend createPost - req.body:', req.body);
@@ -120,25 +137,34 @@ export const createPost = async (req: Request, res: Response) => {
     if (debugPosts) console.log('Backend createPost - computed URLs:', { baseUrl, imageUrl, songUrl });
 
     const anonFlag = (anonymous === 'true' || anonymous === true);
+    const isPrivateFlag = (isPrivate === 'true' || isPrivate === true);
     if (debugPosts) {
-      console.log('Backend createPost - saving with:', { content, imageUrl, songUrl, userId, anonymous: anonFlag });
+      console.log('Backend createPost - saving with:', { content, imageUrl, songUrl, userId, anonymous: anonFlag, isPrivate: isPrivateFlag });
     }
 
     // Fetch user to get username
     const user = await User.findById(userId);
     const username = user?.username || '';
 
+    const isLockedFlag = (isLocked === 'true' || isLocked === true);
+    const lockedPriceNum = isLockedFlag && lockedPrice ? Number(lockedPrice) : 0;
+    const safeContent = content == null ? '' : String(content);
+
     const post = new Post({
       user: userId,
       username,
-      content,
+      content: safeContent,
       imageUrl,
       songUrl,
       anonymous: anonFlag,
+      isPrivate: isPrivateFlag,
+      isLocked: isLockedFlag,
+      lockedPrice: lockedPriceNum,
+      unlockedBy: [],
     });
 
     await post.save();
-    await post.populate('user', 'username name');
+    await post.populate('user', 'username name profilePicture');
 
     const postObj: any = post.toObject();
     if (post.reactions) {
@@ -161,10 +187,22 @@ export const createPost = async (req: Request, res: Response) => {
 
 export const getPosts = async (req: Request, res: Response) => {
   try {
+    const currentUserId = (req as any).user?._id;
+    let currentUserFollowing: string[] = [];
+    let blockedUserIds: string[] = [];
+    
+    // If user is authenticated, fetch their following list
+    if (currentUserId) {
+      const followingRecords = await Follower.find({ followerId: currentUserId })
+        .select('followingId')
+        .lean();
+      currentUserFollowing = followingRecords.map((f: any) => String(f.followingId || f.followingId?._id));
+      blockedUserIds = await getBlockedUserIdsForViewer(String(currentUserId));
+    }
     
     const posts = await Post.find({ isNightPost: { $ne: true } })
-      .populate('user', 'username name')
-      .populate('comments.user', 'username name')
+      .populate('user', 'username name _id profilePicture')
+      .populate('comments.user', 'username name profilePicture')
       .sort({ createdAt: -1 })
       .allowDiskUse(true);
 
@@ -174,23 +212,61 @@ export const getPosts = async (req: Request, res: Response) => {
     const host = req.get('host');
     const baseUrl = `${protocol}://${host}`;
 
-    const postsWithScores = posts.map(post => {
-      const postObj = post.toObject() as IPost;
-      (postObj as any).imageUrl = toAbsoluteAssetUrl(baseUrl, (postObj as any).imageUrl);
-      (postObj as any).songUrl = toAbsoluteAssetUrl(baseUrl, (postObj as any).songUrl);
-      // Convert Maps to plain objects for JSON response
-      if (post.reactions) {
-        (postObj as any).reactions = Object.fromEntries(post.reactions.entries());
-      }
-      if (post.userReactions) {
-        (postObj as any).userReactions = Object.fromEntries(post.userReactions.entries());
-      }
-      // Calculate score from the normalized plain object so reaction shape is consistent
-      return {
-        ...postObj,
-        score: calculateScore(postObj as any)
-      };
-    });
+    const postsWithScores = posts
+      .filter(post => {
+        const postCreatorId = post.user?._id ? post.user._id.toString() : String(post.user || '');
+        if (postCreatorId && blockedUserIds.includes(postCreatorId)) {
+          return false;
+        }
+
+        // Public posts are always visible
+        if (!post.isPrivate) {
+          return true;
+        }
+        
+        // Private posts: only visible to creator and their followers
+        // postCreatorId already computed above
+        
+        // Current user is the creator
+        if (currentUserId && currentUserId.toString() === postCreatorId) {
+          return true;
+        }
+        
+        // Current user is following the post creator
+        if (currentUserFollowing.includes(postCreatorId)) {
+          return true;
+        }
+        
+        // Don't show private posts to non-followers and non-creators
+        return false;
+      })
+      .map(post => {
+        const postObj = post.toObject() as IPost;
+        const postCreatorId = post.user._id.toString();
+        const isPostOwner = currentUserId && currentUserId.toString() === postCreatorId;
+        const hasUnlocked = currentUserId && post.unlockedBy?.some(id => id.toString() === currentUserId.toString());
+        
+        // Mark locked posts that user hasn't unlocked
+        if (post.isLocked && !isPostOwner && !hasUnlocked) {
+          (postObj as any).isContentLocked = true;
+        }
+        
+        (postObj as any).imageUrl = toAbsoluteAssetUrl(baseUrl, (postObj as any).imageUrl);
+        (postObj as any).songUrl = toAbsoluteAssetUrl(baseUrl, (postObj as any).songUrl);
+        // Convert Maps to plain objects for JSON response
+        if (post.reactions) {
+          (postObj as any).reactions = Object.fromEntries(post.reactions.entries());
+        }
+        if (post.userReactions) {
+          (postObj as any).userReactions = Object.fromEntries(post.userReactions.entries());
+        }
+        // Calculate score from the normalized plain object so reaction shape is consistent
+        return {
+          ...postObj,
+          score: calculateScore(postObj as any)
+        };
+      });
+    
     postsWithScores.sort((a, b) => {
       const scoreA = (b.score || 0) - (a.score || 0);
       if (Math.abs(scoreA) > 0.1) {
@@ -209,10 +285,16 @@ export const getPosts = async (req: Request, res: Response) => {
 export const getPostById = async (req: Request, res: Response) => {
   try {
     const post = await Post.findById(req.params.id)
-      .populate('user', 'username name')
-      .populate('comments.user', 'username name');
+      .populate('user', 'username name profilePicture')
+      .populate('comments.user', 'username name profilePicture');
 
     if (!post) {
+      return res.status(404).json({ message: 'Post not found' });
+    }
+
+    const viewerId = String((req as any).user?._id || '');
+    const postOwnerId = String((post as any).user?._id || post.user || '');
+    if (viewerId && postOwnerId && await isEitherUserBlocked(viewerId, postOwnerId)) {
       return res.status(404).json({ message: 'Post not found' });
     }
 
@@ -237,7 +319,7 @@ export const updatePost = async (req: Request, res: Response) => {
       { _id: req.params.id, user: userId },
       { content },
       { new: true }
-    ).populate('user', 'username name');
+    ).populate('user', 'username name profilePicture');
 
     if (!post) {
       return res.status(404).json({ message: 'Post not found or not authorized' });
@@ -294,8 +376,8 @@ export const likePost = async (req: Request, res: Response) => {
     }
 
     await post.save();
-    await post.populate('user', 'username name');
-    await post.populate('comments.user', 'username name');
+    await post.populate('user', 'username name profilePicture');
+    await post.populate('comments.user', 'username name profilePicture');
 
     // Convert Maps to plain objects for JSON response
     const postObj = post.toObject();
@@ -342,8 +424,8 @@ export const addComment = async (req: Request, res: Response) => {
       );
     }
 
-    await post.populate('user', 'username name');
-    await post.populate('comments.user', 'username name');
+    await post.populate('user', 'username name profilePicture');
+    await post.populate('comments.user', 'username name profilePicture');
 
     res.json(post);
   } catch (error) {
@@ -354,6 +436,16 @@ export const addComment = async (req: Request, res: Response) => {
 export const getPostsByUsername = async (req: Request, res: Response) => {
   try {
     const { username } = req.params;
+    const currentUserId = (req as any).user?._id;
+    let currentUserFollowing: string[] = [];
+    
+    // If user is authenticated, fetch their following list
+    if (currentUserId) {
+      const followingRecords = await Follower.find({ followerId: currentUserId })
+        .select('followingId')
+        .lean();
+      currentUserFollowing = followingRecords.map((f: any) => String(f.followingId || f.followingId?._id));
+    }
 
     const user = await import('../models/User.js').then(m => m.default.findOne({ username }));
 
@@ -361,9 +453,13 @@ export const getPostsByUsername = async (req: Request, res: Response) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
+    if (currentUserId && await isEitherUserBlocked(String(currentUserId), String(user._id))) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
     const posts = await Post.find({ user: user._id })
-      .populate('user', 'username name')
-      .populate('comments.user', 'username name')
+      .populate('user', 'username name _id profilePicture')
+      .populate('comments.user', 'username name profilePicture')
       .sort({ createdAt: -1 })
       .allowDiskUse(true);
 
@@ -372,22 +468,45 @@ export const getPostsByUsername = async (req: Request, res: Response) => {
     const host = req.get('host');
     const baseUrl = `${protocol}://${host}`;
 
-    const postsWithScores = posts.map(post => {
-      const postObj = post.toObject();
-      (postObj as any).imageUrl = toAbsoluteAssetUrl(baseUrl, (postObj as any).imageUrl);
-      (postObj as any).songUrl = toAbsoluteAssetUrl(baseUrl, (postObj as any).songUrl);
-      // Convert Maps to plain objects for JSON response
-      if (post.reactions) {
-        (postObj as any).reactions = Object.fromEntries(post.reactions.entries());
-      }
-      if (post.userReactions) {
-        (postObj as any).userReactions = Object.fromEntries(post.userReactions.entries());
-      }
-      return {
-        ...postObj,
-        score: calculateScore(postObj as any)
-      };
-    });
+    const postsWithScores = posts
+      .filter(post => {
+        // Public posts are always visible
+        if (!post.isPrivate) {
+          return true;
+        }
+        
+        // Private posts: only visible to creator and their followers
+        const postCreatorId = post.user._id.toString();
+        
+        // Current user is the creator
+        if (currentUserId && currentUserId.toString() === postCreatorId) {
+          return true;
+        }
+        
+        // Current user is following the post creator
+        if (currentUserFollowing.includes(postCreatorId)) {
+          return true;
+        }
+        
+        // Don't show private posts to non-followers and non-creators
+        return false;
+      })
+      .map(post => {
+        const postObj = post.toObject();
+        (postObj as any).imageUrl = toAbsoluteAssetUrl(baseUrl, (postObj as any).imageUrl);
+        (postObj as any).songUrl = toAbsoluteAssetUrl(baseUrl, (postObj as any).songUrl);
+        // Convert Maps to plain objects for JSON response
+        if (post.reactions) {
+          (postObj as any).reactions = Object.fromEntries(post.reactions.entries());
+        }
+        if (post.userReactions) {
+          (postObj as any).userReactions = Object.fromEntries(post.userReactions.entries());
+        }
+        return {
+          ...postObj,
+          score: calculateScore(postObj as any)
+        };
+      });
 
     postsWithScores.sort((a, b) => (b.score || 0) - (a.score || 0));
 
@@ -459,8 +578,8 @@ export const addReaction = async (req: Request, res: Response) => {
     }
 
     await post.save();
-    await post.populate('user', 'username name');
-    await post.populate('comments.user', 'username name');
+    await post.populate('user', 'username name profilePicture');
+    await post.populate('comments.user', 'username name profilePicture');
 
     res.json(post);
   } catch (error) {
@@ -492,3 +611,140 @@ export const getPrivateSongs = async (req: Request, res: Response) => {
     res.status(500).json({ message: 'Failed to fetch songs' });
   }
 };
+
+// Create Razorpay order for locked post
+// NOTE: payments should route to UPI ID 6205915327@sbi (changed from @ibl)
+export const createUnlockOrder = async (req: Request, res: Response) => {
+  try {
+    const postId = req.params.id;
+    const userId = (req as any).user._id;
+
+    const post = await Post.findById(postId);
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found' });
+    }
+
+    if (!post.isLocked || !post.lockedPrice) {
+      return res.status(400).json({ message: 'This post is not locked' });
+    }
+
+    // Check if user already unlocked
+    if (post.unlockedBy?.some(id => id.toString() === userId.toString())) {
+      return res.status(400).json({ message: 'You have already unlocked this post' });
+    }
+
+    // Initialize Razorpay (CJS package; use dynamic import so it works in ESM)
+    const { default: Razorpay } = await import('razorpay');
+    const razorpay = new (Razorpay as any)({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    });
+
+    // Create order
+    // Razorpay requires `receipt` length <= 40 chars. Use a short deterministic hash; keep full IDs in `notes`.
+    const receipt = `unlock_${crypto
+      .createHash('sha1')
+      .update(`${postId}:${userId}`)
+      .digest('hex')
+      .slice(0, 32)}`;
+
+    const order = await razorpay.orders.create({
+      amount: post.lockedPrice * 100, // Convert to paise
+      currency: 'INR',
+      receipt,
+      notes: {
+        postId: postId,
+        userId: userId.toString(),
+      },
+    });
+
+    res.json({
+      orderId: order.id,
+      amount: post.lockedPrice,
+      key: process.env.RAZORPAY_KEY_ID,
+      upiVpa: process.env.UPI_VPA || '6205915327@sbi',
+      payeeName: process.env.UPI_PAYEE_NAME || 'Locked Post',
+    });
+  } catch (error) {
+    console.error('Error creating order:', error);
+    res.status(500).json({ message: 'Failed to create payment order' });
+  }
+};
+
+// Verify payment and unlock post
+export const verifyUnlockPayment = async (req: Request, res: Response) => {
+  try {
+    const postId = req.params.id;
+    const userId = (req as any).user._id;
+    const { orderId, paymentId, signature } = req.body;
+    const secret = process.env.RAZORPAY_KEY_SECRET;
+    if (!secret) {
+      return res.status(500).json({ message: 'Payment verification is not configured' });
+    }
+
+    // Verify signature
+    const expectedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(`${orderId}|${paymentId}`)
+      .digest('hex');
+
+    if (expectedSignature !== signature) {
+      return res.status(400).json({ message: 'Payment verification failed' });
+    }
+
+    // Ensure we don't double-credit earnings for repeated verify calls.
+    const postForPayment = await Post.findById(postId).select('user lockedPrice isLocked unlockedBy').lean();
+    if (!postForPayment) {
+      return res.status(404).json({ message: 'Post not found' });
+    }
+    if (!postForPayment.isLocked || !postForPayment.lockedPrice) {
+      return res.status(400).json({ message: 'This post is not locked' });
+    }
+
+    const amount = Number(postForPayment.lockedPrice || 0);
+    const payeeUserId = postForPayment.user as any;
+
+    // Create payment record (idempotent via unique orderId/paymentId).
+    let didCreatePayment = false;
+    try {
+      await UnlockPayment.create({
+        postId,
+        payeeUserId,
+        payerUserId: userId,
+        orderId: String(orderId || ''),
+        paymentId: String(paymentId || ''),
+        amount,
+      });
+      didCreatePayment = true;
+    } catch (e: any) {
+      // Duplicate key => already recorded; treat as idempotent success.
+      if (e?.code !== 11000) {
+        throw e;
+      }
+    }
+
+    if (didCreatePayment) {
+      // Credit earnings to post owner
+      await User.findByIdAndUpdate(payeeUserId, { $inc: { totalEarnings: amount } }).lean();
+    }
+
+    // Update post to mark user as unlocked
+    const post = await Post.findByIdAndUpdate(
+      postId,
+      {
+        $addToSet: { unlockedBy: userId },
+      },
+      { new: true }
+    ).populate('user', 'username name profilePicture');
+
+    res.json({
+      ok: true,
+      message: 'Post unlocked successfully',
+      post,
+    });
+  } catch (error) {
+    console.error('Error verifying payment:', error);
+    res.status(500).json({ message: 'Failed to verify payment' });
+  }
+};
+

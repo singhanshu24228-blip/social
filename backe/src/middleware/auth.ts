@@ -20,7 +20,7 @@ export const requireAuth = async (req: AuthRequest, res: Response, next: NextFun
 
   try {
     const payload: any = jwt.verify(token, getJwtSecret());
-    const user = await User.findById(payload.id).select('-password');
+    const user = await User.findById(payload.id);
     if (!user) return res.status(401).json({ message: 'Invalid token' });
     req.user = user;
 
@@ -42,4 +42,29 @@ export const requireAuth = async (req: AuthRequest, res: Response, next: NextFun
     console.warn('JWT verify failed', err);
     return res.status(401).json({ message: 'Invalid token' });
   }
+};
+
+export const optionalAuth = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const header = req.headers.authorization;
+  let token: string | undefined;
+  const tokenFromHeader = Boolean(header && header.startsWith('Bearer '));
+  if (tokenFromHeader) token = header!.replace('Bearer ', '');
+  // Fallback to cookie-based access token
+  const tokenFromCookie = !tokenFromHeader && Boolean((req as any).cookies?.access_token);
+  if (!token && tokenFromCookie) token = (req as any).cookies.access_token;
+
+  if (token) {
+    try {
+      const payload: any = jwt.verify(token, getJwtSecret());
+      const user = await User.findById(payload.id);
+      if (user) {
+        req.user = user;
+      }
+    } catch (err) {
+      // Silently ignore token errors; request proceeds as unauthenticated
+      console.warn('JWT verify failed in optionalAuth', err);
+    }
+  }
+
+  next();
 };

@@ -3,8 +3,10 @@ import User from '../models/User.js';
 import Post from '../models/Post.js';
 import Room from '../models/Room.js';
 import RoomComment from '../models/RoomComment.js';
+import RoomEntryPayment from '../models/RoomEntryPayment.js';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { uploadsDir, legacyUploadsDir } from '../utils/paths.js';
 import {
   canUserEnterNightMode,
@@ -216,14 +218,16 @@ export const createNightPost = async (req: Request, res: Response) => {
     }
 
     const { content, imageUrl, songUrl, anonymous } = req.body;
+    const safeContent = content == null ? '' : String(content);
+    const hasAny = Boolean(String(safeContent).trim() || String(imageUrl || '').trim() || String(songUrl || '').trim());
 
-    if (!content || content.trim().length === 0) {
-      return res.status(400).json({ message: 'Content is required' });
+    if (!hasAny) {
+      return res.status(400).json({ message: 'Nothing to post' });
     }
 
     const post = new Post({
       user: userId,
-      content,
+      content: safeContent,
       imageUrl,
       songUrl,
       anonymous: anonymous === 'true' || anonymous === true,
@@ -272,12 +276,23 @@ export const createNightRoom = async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, message: 'Rooms can only be created during Night Mode.' });
     }
 
-    const { name } = req.body;
+    const { name, entryFee: entryFeeRaw } = req.body as any;
     if (!name || name.trim().length === 0) {
       return res.status(400).json({ message: 'Room name is required' });
     }
 
-    const room = new Room({ name: name.trim(), creator: userId, participants: [userId], isNightRoom: true });
+    const entryFeeNum = Number(entryFeeRaw || 0);
+    const entryFee = Number.isFinite(entryFeeNum) && entryFeeNum > 0 ? Math.floor(entryFeeNum) : 0;
+    if (entryFee < 0) return res.status(400).json({ message: 'Invalid entry fee' });
+    if (entryFee > 100000) return res.status(400).json({ message: 'Entry fee too high' });
+
+    const room = new Room({
+      name: name.trim(),
+      creator: userId,
+      participants: [userId],
+      isNightRoom: true,
+      entryFee,
+    });
     await room.save();
     await room.populate('creator', 'username name');
 
@@ -302,61 +317,129 @@ export const getNightRooms = async (req: Request, res: Response) => {
 };
 
 /**
- * Request to join a room (adds user to pendingRequests)
+ * Join a room directly.
+ * - If entryFee is 0 => joins immediately
+ * - If entryFee > 0 => returns Razorpay order details (client must verify payment)
  */
-export const requestJoinRoom = async (req: Request, res: Response) => {
+export const joinNightRoom = async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user.id;
-    const roomId = req.params.id;
+    const userId = String((req as any).user.id);
+    const roomId = String(req.params.id || '').trim();
 
     const room = await Room.findById(roomId);
     if (!room) return res.status(404).json({ success: false, message: 'Room not found' });
 
-    // If already participant
     if (room.participants.map(String).includes(String(userId))) {
-      return res.json({ success: true, message: 'Already joined' });
+      return res.json({ success: true, joined: true, roomId });
     }
 
-    // If already requested
-    if (room.pendingRequests.map(String).includes(String(userId))) {
-      return res.json({ success: true, message: 'Request pending' });
+    // creator always joins without payment
+    if (String(room.creator) === String(userId)) {
+      room.participants.push(userId as any);
+      await room.save();
+      return res.json({ success: true, joined: true, roomId });
     }
 
-    room.pendingRequests.push(userId);
-    await room.save();
-    res.json({ success: true, message: 'Join request submitted' });
+    const fee = Number((room as any).entryFee || 0);
+    if (!fee || fee <= 0) {
+      room.participants.push(userId as any);
+      await room.save();
+      return res.json({ success: true, joined: true, roomId });
+    }
+
+    const { default: Razorpay } = await import('razorpay');
+    const razorpay = new (Razorpay as any)({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    });
+
+    const receipt = `room_${crypto
+      .createHash('sha1')
+      .update(`${roomId}:${userId}`)
+      .digest('hex')
+      .slice(0, 32)}`;
+
+    const order = await razorpay.orders.create({
+      amount: fee * 100,
+      currency: 'INR',
+      receipt,
+      notes: { roomId, userId },
+    });
+
+    return res.json({
+      success: true,
+      paymentRequired: true,
+      orderId: order.id,
+      amount: fee,
+      key: process.env.RAZORPAY_KEY_ID,
+      upiVpa: process.env.UPI_VPA || '6205915327@sbi',
+      payeeName: process.env.UPI_PAYEE_NAME || 'Night Room Entry',
+    });
   } catch (error) {
-    console.error('Error requesting join room:', error);
+    console.error('Error joining room:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };
 
-/**
- * Approve a pending join request (only creator)
- */
-export const approveJoinRoom = async (req: Request, res: Response) => {
+export const verifyNightRoomEntryPayment = async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user.id; // approver
-    const roomId = req.params.id;
-    const approveUserId = req.body.userId;
+    const roomId = String(req.params.id || '').trim();
+    const userId = String((req as any).user._id || (req as any).user?.id || '');
+    const { orderId, paymentId, signature } = req.body as any;
 
-    const room = await Room.findById(roomId);
+    const secret = process.env.RAZORPAY_KEY_SECRET;
+    if (!secret) {
+      return res.status(500).json({ message: 'Payment verification is not configured' });
+    }
+
+    const expectedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(`${orderId}|${paymentId}`)
+      .digest('hex');
+
+    if (expectedSignature !== signature) {
+      return res.status(400).json({ message: 'Payment verification failed' });
+    }
+
+    const room = await Room.findById(roomId).select('creator entryFee participants').lean();
     if (!room) return res.status(404).json({ success: false, message: 'Room not found' });
 
-    if (String(room.creator) !== String(userId)) {
-      return res.status(403).json({ success: false, message: 'Only room creator can approve requests' });
+    const fee = Number((room as any).entryFee || 0);
+    if (!fee || fee <= 0) {
+      return res.status(400).json({ message: 'This room is free' });
     }
 
-    // Remove from pending and add to participants
-    room.pendingRequests = room.pendingRequests.filter((p: any) => String(p) !== String(approveUserId));
-    if (!room.participants.map(String).includes(String(approveUserId))) {
-      room.participants.push(approveUserId);
+    const alreadyParticipant = (room as any).participants?.map(String).includes(String(userId));
+    if (alreadyParticipant) {
+      return res.json({ ok: true, joined: true });
     }
-    await room.save();
-    res.json({ success: true, message: 'User approved', room });
+
+    // record payment idempotently
+    let didCreatePayment = false;
+    try {
+      await RoomEntryPayment.create({
+        roomId,
+        payeeUserId: (room as any).creator,
+        payerUserId: userId,
+        orderId: String(orderId || ''),
+        paymentId: String(paymentId || ''),
+        amount: fee,
+      });
+      didCreatePayment = true;
+    } catch (e: any) {
+      if (e?.code !== 11000) throw e;
+    }
+
+    if (didCreatePayment) {
+      await User.findByIdAndUpdate((room as any).creator, { $inc: { totalEarnings: fee } }).lean();
+    }
+
+    await Room.findByIdAndUpdate(roomId, { $addToSet: { participants: userId } }).lean();
+
+    return res.json({ ok: true, joined: true });
   } catch (error) {
-    console.error('Error approving join room:', error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Error verifying room entry payment:', error);
+    res.status(500).json({ message: 'Failed to verify payment' });
   }
 };
 
@@ -366,7 +449,7 @@ export const approveJoinRoom = async (req: Request, res: Response) => {
 export const getRoomDetails = async (req: Request, res: Response) => {
   try {
     const roomId = req.params.id;
-    const room = await Room.findById(roomId).populate('creator', 'username name').populate('participants', 'username name').populate('pendingRequests', 'username name').lean();
+    const room = await Room.findById(roomId).populate('creator', 'username name').populate('participants', 'username name').lean();
     if (!room) return res.status(404).json({ success: false, message: 'Room not found' });
     res.json({ success: true, room });
   } catch (error) {

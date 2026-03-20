@@ -5,9 +5,18 @@ import User from '../models/User.js';
 import Group from '../models/Group.js';
 import GroupMessage from '../models/GroupMessage.js';
 import PrivateMessage from '../models/PrivateMessage.js';
+import Room from '../models/Room.js';
 import { getJwtSecret } from '../utils/jwt.js';
 
 export let ioInstance: Server | null = null;
+
+type NightRoomStreamState = {
+  roomId: string;
+  streamerSocketId: string;
+  streamerUserId: string;
+};
+
+const nightRoomStreams = new Map<string, NightRoomStreamState>();
 
 export function getTokenFromHandshake(handshake: {
   headers?: Record<string, unknown>;
@@ -91,6 +100,8 @@ export function initSocket(server: HttpServer) {
     const userId = (socket as any).userId;
     console.log('Socket connected:', userId);
 
+    (socket.data as any).nightRooms = new Set<string>();
+
     // Set user online
     await User.findByIdAndUpdate(userId, { isOnline: true });
     io.emit('presence:update', { userId, isOnline: true });
@@ -123,6 +134,163 @@ export function initSocket(server: HttpServer) {
       }
     });
 
+    // Night rooms (Night Mode) subscription + WebRTC signaling
+    socket.on('nightroom:join', async (payload: any) => {
+      try {
+        const roomId = String(payload?.roomId || '');
+        if (!roomId) return;
+
+        const room = await Room.findById(roomId).select('participants').lean();
+        if (!room) return;
+        const isParticipant = (room.participants || []).some((p: any) => String(p) === String(userId));
+        if (!isParticipant) return;
+
+        socket.join(`nightroom:${roomId}`);
+        (socket.data as any).nightRooms.add(roomId);
+        socket.emit('nightroom:joined', { roomId });
+
+        const existing = nightRoomStreams.get(roomId);
+        if (existing) {
+          socket.emit('nightroom:stream:announce', existing);
+        }
+      } catch (err) {
+        console.error('nightroom:join failed', err);
+      }
+    });
+
+    socket.on('nightroom:leave', (payload: any) => {
+      try {
+        const roomId = String(payload?.roomId || '');
+        if (!roomId) return;
+        socket.leave(`nightroom:${roomId}`);
+        (socket.data as any).nightRooms?.delete?.(roomId);
+      } catch (err) {
+        console.error('nightroom:leave failed', err);
+      }
+    });
+
+    socket.on('nightroom:stream:start', async (payload: any) => {
+      try {
+        const roomId = String(payload?.roomId || '');
+        if (!roomId) return;
+
+        const room = await Room.findById(roomId).select('creator participants').lean();
+        if (!room) return;
+        const isParticipant = (room.participants || []).some((p: any) => String(p) === String(userId));
+        if (!isParticipant) return;
+        // Only creator can stream (matches REST canSendMediaInRoom)
+        if (String(room.creator) !== String(userId)) return;
+
+        // Ensure streamer is in the night room channel even if they clicked "Start" quickly.
+        socket.join(`nightroom:${roomId}`);
+        (socket.data as any).nightRooms.add(roomId);
+
+        const state: NightRoomStreamState = {
+          roomId,
+          streamerSocketId: socket.id,
+          streamerUserId: String(userId),
+        };
+        nightRoomStreams.set(roomId, state);
+        io.to(`nightroom:${roomId}`).emit('nightroom:stream:announce', state);
+      } catch (err) {
+        console.error('nightroom:stream:start failed', err);
+      }
+    });
+
+    socket.on('nightroom:stream:stop', (payload: any) => {
+      try {
+        const roomId = String(payload?.roomId || '');
+        if (!roomId) return;
+        const existing = nightRoomStreams.get(roomId);
+        if (!existing) return;
+        if (existing.streamerSocketId !== socket.id) return;
+
+        nightRoomStreams.delete(roomId);
+        io.to(`nightroom:${roomId}`).emit('nightroom:stream:stop', { roomId, streamerSocketId: socket.id });
+      } catch (err) {
+        console.error('nightroom:stream:stop failed', err);
+      }
+    });
+
+    socket.on('nightroom:stream:viewer-ready', (payload: any) => {
+      try {
+        const roomId = String(payload?.roomId || '');
+        const streamerSocketId = String(payload?.streamerSocketId || '');
+        if (!roomId || !streamerSocketId) return;
+        if (!(socket.data as any).nightRooms?.has?.(roomId)) return;
+
+        const existing = nightRoomStreams.get(roomId);
+        if (!existing) return;
+        if (existing.streamerSocketId !== streamerSocketId) return;
+
+        io.to(existing.streamerSocketId).emit('nightroom:stream:viewer-ready', {
+          roomId,
+          viewerSocketId: socket.id,
+          viewerUserId: String(userId),
+        });
+      } catch (err) {
+        console.error('nightroom:stream:viewer-ready failed', err);
+      }
+    });
+
+    socket.on('nightroom:stream:offer', (payload: any) => {
+      try {
+        const roomId = String(payload?.roomId || '');
+        const targetSocketId = String(payload?.targetSocketId || '');
+        const sdp = payload?.sdp;
+        if (!roomId || !targetSocketId || !sdp) return;
+        if (!(socket.data as any).nightRooms?.has?.(roomId)) return;
+
+        const existing = nightRoomStreams.get(roomId);
+        if (!existing) return;
+        if (existing.streamerSocketId !== socket.id) return;
+
+        io.to(targetSocketId).emit('nightroom:stream:offer', {
+          roomId,
+          fromSocketId: socket.id,
+          sdp,
+        });
+      } catch (err) {
+        console.error('nightroom:stream:offer failed', err);
+      }
+    });
+
+    socket.on('nightroom:stream:answer', (payload: any) => {
+      try {
+        const roomId = String(payload?.roomId || '');
+        const targetSocketId = String(payload?.targetSocketId || '');
+        const sdp = payload?.sdp;
+        if (!roomId || !targetSocketId || !sdp) return;
+        if (!(socket.data as any).nightRooms?.has?.(roomId)) return;
+
+        io.to(targetSocketId).emit('nightroom:stream:answer', {
+          roomId,
+          fromSocketId: socket.id,
+          sdp,
+        });
+      } catch (err) {
+        console.error('nightroom:stream:answer failed', err);
+      }
+    });
+
+    socket.on('nightroom:stream:ice', (payload: any) => {
+      try {
+        const roomId = String(payload?.roomId || '');
+        const targetSocketId = String(payload?.targetSocketId || '');
+        const candidate = payload?.candidate;
+        if (!roomId || !targetSocketId || !candidate) return;
+        if (!(socket.data as any).nightRooms?.has?.(roomId)) return;
+
+        io.to(targetSocketId).emit('nightroom:stream:ice', {
+          roomId,
+          fromSocketId: socket.id,
+          candidate,
+        });
+      } catch (err) {
+        console.error('nightroom:stream:ice failed', err);
+      }
+    });
+
     // Handle sending message to group
     socket.on('group:message', async (payload: any) => {
       try {
@@ -131,7 +299,7 @@ export function initSocket(server: HttpServer) {
           socket.emit('group:message:error', { message: 'Missing group ID or message content' });
           return;
         }
-        const group = await Group.findById(groupId).select('members');
+        const group = await Group.findById(groupId).select('members groupName');
         if (!group) {
           socket.emit('group:message:error', { message: 'Group not found' });
           return;
@@ -192,6 +360,24 @@ export function initSocket(server: HttpServer) {
         io.to(`group:${groupId}`).emit('group:message', out);
         // ack to sender so optimistic UI can be reconciled
         socket.emit('group:message:sent', out);
+
+        // Create notifications for other members (so they appear in the in-app notifications panel).
+        // Safety: cap fanout to avoid accidental DB floods in very large groups.
+        try {
+          const { createNotification } = await import('../controllers/notificationController.js');
+          const members: string[] = (group.members || []).map((m: any) => String(m));
+          const targets = members.filter((m) => m && m !== String(userId)).slice(0, 200);
+
+          const preview =
+            voiceUrl ? `[Voice] ${message || ''}` : (message || '[Media message]');
+          const content = group.groupName ? `[${group.groupName}] ${preview}` : preview;
+
+          await Promise.all(
+            targets.map((uid) => createNotification(uid, String(userId), 'message', content))
+          );
+        } catch (nerr) {
+          console.warn('Failed to create group message notifications', nerr);
+        }
       } catch (err) {
         console.error('group:message failed', err);
         // notify sender about failure
@@ -308,6 +494,14 @@ export function initSocket(server: HttpServer) {
       console.log('Socket disconnected:', userId);
       await User.findByIdAndUpdate(userId, { isOnline: false });
       io.emit('presence:update', { userId, isOnline: false });
+
+      // If this socket was streaming in any night room, stop it.
+      for (const [roomId, state] of nightRoomStreams.entries()) {
+        if (state.streamerSocketId === socket.id) {
+          nightRoomStreams.delete(roomId);
+          io.to(`nightroom:${roomId}`).emit('nightroom:stream:stop', { roomId, streamerSocketId: socket.id });
+        }
+      }
     });
   });
 

@@ -1,6 +1,22 @@
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+
 if (process.env.NODE_ENV !== 'test') {
-  dotenv.config();
+  const cwd = process.cwd();
+  const backendRootDir =
+    path.basename(cwd).toLowerCase() === 'backe' ? cwd : path.resolve(cwd, 'backe');
+  const envCandidates = [
+    path.resolve(backendRootDir, '.env'),
+    path.resolve(cwd, '.env'),
+  ];
+  const existingEnvPath = envCandidates.find((p) => fs.existsSync(p));
+
+  if (existingEnvPath) {
+    dotenv.config({ path: existingEnvPath });
+  } else {
+    dotenv.config();
+  }
 }
 
 import express from 'express';
@@ -8,8 +24,6 @@ import http from 'http';
 import cors from 'cors';
 import mongoose from 'mongoose';
 import type { AddressInfo } from 'net';
-import path from 'path';
-import fs from 'fs';
 import cookieParser from 'cookie-parser';
 import authRoutes from './routes/auth.js';
 import { initSocket } from './socket/index.js';
@@ -23,6 +37,8 @@ import nightModeRoutes from './routes/nightMode.js';
 import uploadRoutes from './routes/upload.js';
 import debugRoutes from './routes/debug.js';
 import reportsRoutes from './routes/reports.js';
+import withdrawalsRoutes from './routes/withdrawals.js';
+import adminRoutes from './routes/admin.js';
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { frontendDistDir, uploadsDir } from './utils/paths.js';
@@ -156,7 +172,9 @@ export function createApp() {
   app.use('/api/notifications', notificationsRoutes);
   app.use('/api/night-mode', nightModeRoutes);
   app.use('/api/upload', uploadRoutes);
+  app.use('/api/withdrawals', withdrawalsRoutes);
   app.use('/api/reports', reportsRoutes);
+  app.use('/api/admin', adminRoutes);
 
   if (debugUploads) {
     app.use('/uploads', (req, res, next) => {

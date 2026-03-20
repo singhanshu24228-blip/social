@@ -1,9 +1,11 @@
 import { Request, Response } from 'express';
+import { AuthRequest } from '../middleware/auth.js';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import User from '../models/User.js';
 import RefreshToken from '../models/RefreshToken.js';
 import { getJwtSecret } from '../utils/jwt.js';
+import { sendPasswordResetEmail } from '../utils/email.js';
 
 const isProd = process.env.NODE_ENV === 'production';
 const ACCESS_TOKEN_EXPIRES = 30 * 24 * 60 * 60; // 30 days in seconds
@@ -92,17 +94,53 @@ export const signup = async (req: Request, res: Response) => {
 
 export const login = async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, userType = 'user' } = req.body;
     if (!email || !password) return res.status(400).json({ message: 'Missing credentials' });
 
     const user = await User.findOne({ email });
     if (!user) return res.status(401).json({ message: 'Invalid credentials' });
 
-    const isMatch = await user.comparePassword(password);
-    if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });
+    // Check if user type matches
+    if (userType === 'admin' && !(user as any).isAdmin) {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+    if (userType === 'user' && (user as any).isAdmin) {
+      return res.status(403).json({ message: 'User access required' });
+    }
 
-    // Validate username uniqueness within 2 KM using stored location
-    if (user.username && user.location && user.location.coordinates) {
+    // reset counters if previous lock has expired
+    if (user.lockUntil && user.lockUntil <= new Date()) {
+      user.failedLoginAttempts = 0;
+      user.lockUntil = undefined as any;
+      await user.save().catch(() => {});
+    }
+
+    // check for lockout
+    if (user.lockUntil && user.lockUntil > new Date()) {
+      return res.status(429).json({ message: 'Too many failed attempts. Please try again later.' });
+    }
+
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      // increment counter and possibly lock
+      const attempts = (user.failedLoginAttempts || 0) + 1;
+      const updates: any = { failedLoginAttempts: attempts };
+      if (attempts >= 5) {
+        updates.lockUntil = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+      }
+      await User.updateOne({ _id: user._id }, updates).catch(() => {});
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    // successful login: reset lock/attempts
+    if (user.failedLoginAttempts || user.lockUntil) {
+      user.failedLoginAttempts = 0;
+      user.lockUntil = undefined as any;
+      user.save().catch(() => {});
+    }
+
+    // Validate username uniqueness within 2 KM using stored location (only for regular users)
+    if (userType === 'user' && user.username && user.location && user.location.coordinates) {
       const coords: [number, number] = user.location.coordinates as [number, number];
       const isAvailable = await (User as any).isUsernameAvailable(user.username, coords, 2000, user._id.toString());
       if (!isAvailable) {
@@ -113,7 +151,7 @@ export const login = async (req: Request, res: Response) => {
     // Rotate/create new tokens
     const { accessToken } = setAuthCookies(res, user);
     res.json({
-      user: { id: user._id, username: user.username, name: user.name, email: user.email },
+      user: { id: user._id, username: user.username, name: user.name, email: user.email, isAdmin: (user as any).isAdmin },
       ...(exposeAccessToken ? { accessToken } : {}),
     });
   } catch (err) {
@@ -175,6 +213,236 @@ export const logout = async (req: Request, res: Response) => {
     res.json({ success: true });
   } catch (err) {
     console.error('Logout failed', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// -----------------------------------------------------------------------------
+// password reset endpoints
+
+export const forgotPassword = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: 'Email required' });
+
+    const user = await User.findOne({ email });
+    if (user) {
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const otpHash = crypto.createHash('sha256').update(otp).digest('hex');
+      const expires = new Date(Date.now() + 10 * 60 * 1000);
+      user.passwordReset = { otpHash, expires } as any;
+      await user.save().catch(() => {});
+
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[auth] generated OTP for ${email}: ${otp}`);
+      }
+
+      try {
+        await sendPasswordResetEmail(email, otp, 'reset your password');
+      } catch (mailErr) {
+        console.error('Failed to send reset email', mailErr);
+      }
+    }
+
+    res.json({ message: 'If that email exists, an OTP has been sent' });
+  } catch (err) {
+    console.error('forgotPassword error', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+export const resetPassword = async (req: Request, res: Response) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({ message: 'Missing parameters' });
+    }
+    const user = await User.findOne({ email });
+    if (!user || !user.passwordReset) {
+      return res.status(400).json({ message: 'Invalid or expired OTP' });
+    }
+    if (user.passwordReset.expires < new Date()) {
+      return res.status(400).json({ message: 'OTP expired' });
+    }
+    const providedHash = crypto.createHash('sha256').update(otp).digest('hex');
+    if (providedHash !== user.passwordReset.otpHash) {
+      return res.status(400).json({ message: 'Invalid OTP' });
+    }
+
+    user.password = newPassword;
+    user.passwordReset = undefined as any;
+    user.failedLoginAttempts = 0;
+    user.lockUntil = undefined as any;
+    await user.save();
+
+    res.json({ message: 'Password has been reset' });
+  } catch (err) {
+    console.error('resetPassword error', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// -----------------------------------------------------------------------------
+// account deletion flow
+
+export const requestDeleteAccount = async (req: AuthRequest, res: Response) => {
+  try {
+    // user must be authenticated; middleware will attach req.user
+    const user = (req as any).user;
+    if (!user) return res.status(401).json({ message: 'Not authenticated' });
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpHash = crypto.createHash('sha256').update(otp).digest('hex');
+    const expires = new Date(Date.now() + 10 * 60 * 1000);
+    user.accountDeletion = { otpHash, expires } as any;
+    await user.save().catch(() => {});
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[auth] generated delete OTP for ${user.email}: ${otp}`);
+    }
+
+    try {
+      await sendPasswordResetEmail(user.email, otp, 'delete your account');
+    } catch (mailErr) {
+      console.error('Failed to send delete OTP email', mailErr);
+    }
+
+    res.json({ message: 'If that account exists, an OTP has been sent' });
+  } catch (err) {
+    console.error('requestDeleteAccount error', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+export const requestUsernameChange = async (req: AuthRequest, res: Response) => {
+  try {
+    const user = req.user;
+    if (!user) return res.status(401).json({ message: 'Not authenticated' });
+
+    const { newUsername } = req.body;
+    if (!newUsername || typeof newUsername !== 'string') {
+      return res.status(400).json({ message: 'Missing newUsername' });
+    }
+
+    // check availability using user's location
+    if (user.location && user.location.coordinates) {
+      const coords: [number, number] = user.location.coordinates as [number, number];
+      const available = await (User as any).isUsernameAvailable(newUsername, coords, 2000, user._id.toString());
+      if (!available) {
+        return res.status(409).json({ message: 'Username not available in your area' });
+      }
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpHash = crypto.createHash('sha256').update(otp).digest('hex');
+    const expires = new Date(Date.now() + 10 * 60 * 1000);
+    user.usernameChange = { newUsername, otpHash, expires } as any;
+    await user.save().catch(() => {});
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[auth] generated username change OTP for ${user.email}: ${otp}`);
+    }
+
+    try {
+      await sendPasswordResetEmail(user.email, otp, 'change your username');
+    } catch (mailErr) {
+      console.error('Failed to send username change OTP email', mailErr);
+    }
+
+    res.json({ message: 'If that account exists, an OTP has been sent' });
+  } catch (err) {
+    console.error('requestUsernameChange error', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+export const changeUsername = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = (req as any).user?._id;
+    if (!userId) return res.status(401).json({ message: 'Not authenticated' });
+
+    const { password, otp } = req.body;
+    if (!password || !otp) {
+      return res.status(400).json({ message: 'Missing parameters' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const match = await user.comparePassword(password);
+    if (!match) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    if (!user.usernameChange) {
+      return res.status(400).json({ message: 'OTP not requested' });
+    }
+    if (user.usernameChange.expires < new Date()) {
+      return res.status(400).json({ message: 'OTP expired' });
+    }
+    const providedHash = crypto.createHash('sha256').update(otp).digest('hex');
+    if (providedHash !== user.usernameChange.otpHash) {
+      return res.status(400).json({ message: 'Invalid OTP' });
+    }
+
+    // verify availability again (location-based)
+    if (user.location && user.location.coordinates) {
+      const coords: [number, number] = user.location.coordinates as [number, number];
+      const available = await (User as any).isUsernameAvailable(user.usernameChange.newUsername, coords, 2000, user._id.toString());
+      if (!available) {
+        return res.status(409).json({ message: 'Username not available' });
+      }
+    }
+
+    user.username = user.usernameChange.newUsername;
+    user.usernameChange = undefined as any;
+    await user.save();
+
+    res.json({ message: 'Username changed' });
+  } catch (err) {
+    console.error('changeUsername error', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+export const deleteAccount = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = (req as any).user?._id;
+    if (!userId) return res.status(401).json({ message: 'Not authenticated' });
+
+    const { password, otp } = req.body;
+    if (!password || !otp) {
+      return res.status(400).json({ message: 'Missing parameters' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const match = await user.comparePassword(password);
+    if (!match) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    if (!user.accountDeletion) {
+      return res.status(400).json({ message: 'OTP not requested' });
+    }
+    if (user.accountDeletion.expires < new Date()) {
+      return res.status(400).json({ message: 'OTP expired' });
+    }
+    const providedHash = crypto.createHash('sha256').update(otp).digest('hex');
+    if (providedHash !== user.accountDeletion.otpHash) {
+      return res.status(400).json({ message: 'Invalid OTP' });
+    }
+
+    // clean up refresh tokens so cookies become invalid
+    await RefreshToken.deleteMany({ user: user._id }).catch(() => {});
+
+    // delete the user record
+    await User.deleteOne({ _id: user._id });
+
+    res.json({ message: 'Account deleted' });
+  } catch (err) {
+    console.error('deleteAccount error', err);
     res.status(500).json({ message: 'Server error' });
   }
 };

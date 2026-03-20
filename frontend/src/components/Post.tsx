@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
-import { addComment, resolveMediaUrl } from '../services/api';
+import { addComment, resolveMediaUrl, getUploadBaseURL } from '../services/api';
 import { forceRefreshImage, validateImageUrl } from '../utils/imageCache';
 
 interface PostProps {
@@ -10,8 +10,10 @@ interface PostProps {
       _id: string;
       username: string;
       name: string;
+      profilePicture?: string;
     };
     anonymous?: boolean;
+    isPrivate?: boolean;
     content: string;
     imageUrl?: string;
     songUrl?: string;
@@ -48,6 +50,18 @@ const Post: React.FC<PostProps> = ({ post, hideInteractions = false, hideAudioCo
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
   const [localComments, setLocalComments] = useState(post.comments);
   const [error, setError] = useState('');
+  const [showMediaModal, setShowMediaModal] = useState(false);
+  const defaultInfinityLogo = useMemo(() => {
+    return `data:image/svg+xml;base64,${btoa(`
+      <svg width="80" height="80" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="40" cy="40" r="35" fill="#f3f4f6" stroke="#3b82f6" stroke-width="2"/>
+        <path d="M25 35c0-5.5 4.5-10 10-10s10 4.5 10 10c0 3.5-1.8 6.6-4.6 8.4l-5.4 3.6c-2.8 1.8-4.6 5-4.6 8.4 0 5.5 4.5 10 10 10s10-4.5 10-10"
+              stroke="#3b82f6" stroke-width="3" stroke-linecap="round" fill="none"/>
+        <circle cx="35" cy="35" r="2" fill="#3b82f6"/>
+        <circle cx="45" cy="45" r="2" fill="#3b82f6"/>
+      </svg>
+    `)}`;
+  }, []);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -162,18 +176,24 @@ const Post: React.FC<PostProps> = ({ post, hideInteractions = false, hideAudioCo
   }, [post._id, post]);
 
   // const isAnonymous = (post as any).anonymous === true || (post as any).anonymous === 'true';
-const isAnonymous = ( post as any).anonymous === true || ( post as any).anonymous === 'true'
+ const isAnonymous = ( post as any).anonymous === true || ( post as any).anonymous === 'true'
   return (
     <div className="bg-white rounded-lg shadow-md p-4 mb-4 relative min-h-[200px]">
       <div className="flex items-center mb-2">
-        <div className="w-10 h-10 bg-gray-300 rounded-full flex items-center justify-center mr-3">
-          <span className="text-gray-600 font-semibold text-xl">
-            {isAnonymous ? '🚨' : (post.user?.name || 'U').charAt(0).toUpperCase()}
-          </span>
+        <div className="w-10 h-10 rounded-full overflow-hidden border border-blue-500 bg-gray-200 flex items-center justify-center mr-3 flex-shrink-0">
+          <img
+            src={!isAnonymous && post.user?.profilePicture ? resolveMediaUrl(post.user.profilePicture) : defaultInfinityLogo}
+            alt="avatar"
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).src = defaultInfinityLogo;
+            }}
+            loading="lazy"
+          />
         </div>
         <div>
           <p className="font-semibold text-black">{isAnonymous ? '⚠️' : post.user?.name}</p>
-          {!isAnonymous && <p className="text-gray-500 text-sm">@{post.user?.username}</p>}
+          {!isAnonymous && <p className="text-gray-500 text-sm">@{post.user?.username} {(post as any).isPrivate && <span className="ml-1 text-xs bg-gray-200 px-2 py-0.5 rounded">🔒 Private</span>}</p>}
         </div>
       </div>
 
@@ -189,7 +209,8 @@ const isAnonymous = ( post as any).anonymous === true || ( post as any).anonymou
             <video
               src={post.imageUrl.startsWith('http') ? post.imageUrl : `${getUploadBaseURL()}${post.imageUrl}`}
               controls
-              className="w-full rounded-lg"
+              className="w-full rounded-lg cursor-pointer"
+              onClick={() => setShowMediaModal(true)}
               onError={() => {
                 console.error('[Post] Video load error:', post._id);
                 setImageError(true);
@@ -217,7 +238,8 @@ const isAnonymous = ( post as any).anonymous === true || ( post as any).anonymou
               <img
                 src={imageUrl}
                 alt="Post image"
-                className={`w-full rounded-lg ${imageError ? 'hidden' : ''}`}
+                className={`w-full rounded-lg cursor-pointer ${imageError ? 'hidden' : ''}`}
+                onClick={() => setShowMediaModal(true)}
                 onLoad={() => {
                   setImageLoaded(true);
                   setImageError(false);
@@ -351,6 +373,40 @@ const isAnonymous = ( post as any).anonymous === true || ( post as any).anonymou
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Media Modal */}
+      {showMediaModal && post.imageUrl && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowMediaModal(false)}
+        >
+          <div className="relative max-w-full max-h-full">
+            {(() => {
+              const urlPath = post.imageUrl.split('?')[0].toLowerCase();
+              return /\.(mp4|mov|avi|webm|ogv)$/i.test(urlPath);
+            })() ? (
+              <video
+                src={post.imageUrl.startsWith('http') ? post.imageUrl : `${getUploadBaseURL()}${post.imageUrl}`}
+                controls
+                className="max-w-full max-h-full w-full sm:max-w-[450px]"
+                autoPlay
+              />
+            ) : (
+              <img
+                src={imageUrl}
+                alt="Post image"
+                className="max-w-full max-h-full w-full sm:max-w-[450px]"
+              />
+            )}
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowMediaModal(false); }}
+              className="absolute top-2 right-2 text-white text-2xl bg-black bg-opacity-50 rounded-full p-2 hover:bg-opacity-75"
+            >
+              ✕
+            </button>
           </div>
         </div>
       )}

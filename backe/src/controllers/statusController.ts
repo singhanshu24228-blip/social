@@ -1,10 +1,8 @@
 import { Response } from 'express';
 import Status from '../models/Status.js';
-import User from '../models/User.js';
 import { ioInstance } from '../socket/index.js';
 import { AuthRequest } from '../middleware/auth.js';
-
-
+import { getBlockedUserIdsForViewer, isEitherUserBlocked } from '../utils/blocking.js';
 import Follower from '../models/Follower.js';
 
 export const createStatus = async (req: AuthRequest, res: Response) => {
@@ -79,7 +77,11 @@ async function fetchStatusesForUser(userId: string) {
   // include self
   ids.push(userId);
 
-  const statuses = await Status.find({ userId: { $in: ids } })
+  const blockedUserIds = await getBlockedUserIdsForViewer(String(userId));
+  const filteredIds = ids.filter((id: any) => !blockedUserIds.includes(String(id)));
+  if (!filteredIds.some((id: any) => String(id) === String(userId))) filteredIds.push(userId);
+
+  const statuses = await Status.find({ userId: { $in: filteredIds } })
     .select("userId content mediaUrl songUrl createdAt expiresAt views viewers")
     .populate('viewers', 'username name')
     .sort({ createdAt: -1 })
@@ -124,6 +126,10 @@ export const recordView = async (req: AuthRequest, res: Response) => {
     const userId = req.user._id;
     const status = await Status.findById(id);
     if (!status) return res.status(404).json({ message: 'Status not found' });
+
+    if (await isEitherUserBlocked(String(userId), String(status.userId))) {
+      return res.status(404).json({ message: 'Status not found' });
+    }
     // Do not record views when the owner views their own status
     if (String(userId) === String(status.userId)) {
       return res.json({ ok: true });
@@ -159,6 +165,10 @@ export const getStatusById = async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const status = await Status.findById(id).populate('viewers', 'username name').lean();
     if (!status) return res.status(404).json({ message: 'Status not found' });
+
+    if (await isEitherUserBlocked(String(req.user._id), String((status as any).userId))) {
+      return res.status(404).json({ message: 'Status not found' });
+    }
 
     // Only return views/viewers to the owner
     if (String(status.userId) !== String(req.user._id)) {

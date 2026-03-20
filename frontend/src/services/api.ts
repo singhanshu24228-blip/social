@@ -165,6 +165,25 @@ export const getNightModeStatus = () => {
   return api.get('/night-mode/status');
 };
 
+// account deletion helpers
+export const requestAccountDeletion = () => {
+  return api.post('/auth/request-delete');
+};
+
+export const deleteAccount = (password: string, otp: string) => {
+  // axios.delete requires data to be in config
+  return api.delete('/auth/delete-account', { data: { password, otp } });
+};
+
+// username change helpers
+export const requestUsernameChange = (newUsername: string) => {
+  return api.post('/auth/request-username-change', { newUsername });
+};
+
+export const changeUsername = (password: string, otp: string) => {
+  return api.post('/auth/change-username', { password, otp });
+};
+
 export const getNightPosts = () => {
   return api.get('/night-mode/posts');
 };
@@ -173,16 +192,16 @@ export const getNightRooms = () => {
   return api.get('/night-mode/rooms');
 };
 
-export const createNightRoom = (name: string) => {
-  return api.post('/night-mode/rooms', { name });
+export const createNightRoom = (name: string, entryFee: number = 0) => {
+  return api.post('/night-mode/rooms', { name, entryFee });
 };
 
-export const requestJoinRoom = (roomId: string) => {
-  return api.post(`/night-mode/rooms/${roomId}/request`);
+export const joinNightRoom = (roomId: string) => {
+  return api.post(`/night-mode/rooms/${roomId}/join`);
 };
 
-export const approveJoinRoom = (roomId: string, userId: string) => {
-  return api.post(`/night-mode/rooms/${roomId}/approve`, { userId });
+export const verifyNightRoomEntryPayment = (roomId: string, orderId: string, paymentId: string, signature: string) => {
+  return api.post(`/night-mode/rooms/${roomId}/join/verify`, { orderId, paymentId, signature });
 };
 
 export const getRoomDetails = (roomId: string) => {
@@ -202,12 +221,9 @@ export const canSendMediaInRoom = (roomId: string) => {
 };
 
 export const createNightPost = (content: string, imageUrl?: string, songUrl?: string, anonymous?: boolean) => {
-  return api.post('/night-mode/create-post', {
-    content,
-    imageUrl,
-    songUrl,
-    anonymous,
-  });
+  const payload: any = { imageUrl, songUrl, anonymous };
+  if (String(content || '').trim()) payload.content = content;
+  return api.post('/night-mode/create-post', payload);
 };
 
 export const deleteNightPost = (postId: string) => {

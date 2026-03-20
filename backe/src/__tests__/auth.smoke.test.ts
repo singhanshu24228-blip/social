@@ -81,4 +81,222 @@ describe('auth smoke', () => {
 
     await handle.close();
   });
+
+  test('lockout triggers after 5 wrong passwords', async () => {
+    const { default: User } = await import('../models/User.js');
+    const u = new User({
+      username: 'charlie',
+      name: 'Charlie',
+      email: 'charlie@example.com',
+      password: 'right',
+      location: { type: 'Point', coordinates: [0, 0] },
+    });
+    await u.save();
+
+    const { createApp } = await import('../index.js');
+    const { app } = createApp();
+    const server = http.createServer(app);
+    const handle = await listen(server);
+
+    for (let i = 0; i < 5; i++) {
+      const res = await fetch(`${handle.baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: 'charlie@example.com', password: 'wrong' }),
+      });
+      expect(res.status).toBe(401);
+    }
+    const blocked = await fetch(`${handle.baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'charlie@example.com', password: 'right' }),
+    });
+    expect(blocked.status).toBe(429);
+
+    await handle.close();
+  });
+
+  test('forgot/reset password flow', async () => {
+    const crypto = await import('crypto');
+    const { default: User } = await import('../models/User.js');
+    const u = new User({
+      username: 'dave',
+      name: 'Dave',
+      email: 'dave@example.com',
+      password: 'initial',
+      location: { type: 'Point', coordinates: [0, 0] },
+    });
+    await u.save();
+
+    const { createApp } = await import('../index.js');
+    const { app } = createApp();
+    const server = http.createServer(app);
+    const handle = await listen(server);
+
+    let res = await fetch(`${handle.baseUrl}/api/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'dave@example.com' }),
+    });
+    expect(res.status).toBe(200);
+
+    const userAfter = await User.findOne({ email: 'dave@example.com' });
+    expect(userAfter?.passwordReset?.otpHash).toBeTruthy();
+
+    const testOtp = '123456';
+    userAfter!.passwordReset = { otpHash: crypto.createHash('sha256').update(testOtp).digest('hex'), expires: new Date(Date.now() + 100000) } as any;
+    await userAfter!.save();
+
+    res = await fetch(`${handle.baseUrl}/api/auth/reset-password`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'dave@example.com', otp: testOtp, newPassword: 'newpw' }),
+    });
+    expect(res.status).toBe(200);
+
+    const loginRes = await fetch(`${handle.baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'dave@example.com', password: 'newpw' }),
+    });
+    expect(loginRes.status).toBe(200);
+
+    await handle.close();
+  });
+
+  test('request and delete account using password + OTP', async () => {
+    const crypto = await import('crypto');
+    const { default: User } = await import('../models/User.js');
+    // create a fresh user via signup so we get cookies easily
+    const { createApp } = await import('../index.js');
+    const { app } = createApp();
+    const server = http.createServer(app);
+    const handle = await listen(server);
+
+    // signup new user
+    let res = await fetch(`${handle.baseUrl}/api/auth/signup`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: 'deleter',
+        name: 'Delete Me',
+        email: 'deleter@example.com',
+        password: 'secret',
+        location: { type: 'Point', coordinates: [0, 0] },
+      }),
+    });
+    expect(res.status).toBe(201);
+    const setCookies = extractSetCookies(res);
+    const jar = parseCookies(setCookies);
+    const authHeaders = {
+      'content-type': 'application/json',
+      'x-csrf-token': jar.csrf_token,
+      cookie: `access_token=${jar.access_token}; refresh_token=${jar.refresh_token}; csrf_token=${jar.csrf_token}`,
+    };
+
+    // request OTP for deletion
+    res = await fetch(`${handle.baseUrl}/api/auth/request-delete`, {
+      method: 'POST',
+      headers: authHeaders,
+    });
+    expect(res.status).toBe(200);
+
+    const userAfter = await User.findOne({ email: 'deleter@example.com' });
+    expect(userAfter?.accountDeletion?.otpHash).toBeTruthy();
+
+    // simulate OTP code to known value
+    const testOtp = '123456';
+    userAfter!.accountDeletion = { otpHash: crypto.createHash('sha256').update(testOtp).digest('hex'), expires: new Date(Date.now() + 100000) } as any;
+    await userAfter!.save();
+
+    // attempt deletion with wrong password
+    res = await fetch(`${handle.baseUrl}/api/auth/delete-account`, {
+      method: 'DELETE',
+      headers: authHeaders,
+      body: JSON.stringify({ password: 'wrong', otp: testOtp }),
+    });
+    expect(res.status).toBe(401);
+
+    // now correct deletion
+    res = await fetch(`${handle.baseUrl}/api/auth/delete-account`, {
+      method: 'DELETE',
+      headers: authHeaders,
+      body: JSON.stringify({ password: 'secret', otp: testOtp }),
+    });
+    expect(res.status).toBe(200);
+
+    const deleted = await User.findOne({ email: 'deleter@example.com' });
+    expect(deleted).toBeNull();
+
+    await handle.close();
+  });
+
+  test('request and perform username change using password + OTP', async () => {
+    const crypto = await import('crypto');
+    const { default: User } = await import('../models/User.js');
+    const { createApp } = await import('../index.js');
+    const { app } = createApp();
+    const server = http.createServer(app);
+    const handle = await listen(server);
+
+    // signup user
+    let res = await fetch(`${handle.baseUrl}/api/auth/signup`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        username: 'origname',
+        name: 'Orig Name',
+        email: 'orig@example.com',
+        password: 'pw',
+        location: { type: 'Point', coordinates: [0, 0] },
+      }),
+    });
+    expect(res.status).toBe(201);
+    const setCookies = extractSetCookies(res);
+    const jar = parseCookies(setCookies);
+    const authHeaders = {
+      'content-type': 'application/json',
+      'x-csrf-token': jar.csrf_token,
+      cookie: `access_token=${jar.access_token}; refresh_token=${jar.refresh_token}; csrf_token=${jar.csrf_token}`,
+    };
+
+    // request username change
+    res = await fetch(`${handle.baseUrl}/api/auth/request-username-change`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ newUsername: 'newname' }),
+    });
+    expect(res.status).toBe(200);
+
+    const userAfter = await User.findOne({ email: 'orig@example.com' });
+    expect(userAfter?.usernameChange?.otpHash).toBeTruthy();
+    expect(userAfter?.usernameChange?.newUsername).toBe('newname');
+
+    // simulate OTP value
+    const testOtp = '123456';
+    userAfter!.usernameChange = { newUsername: 'newname', otpHash: crypto.createHash('sha256').update(testOtp).digest('hex'), expires: new Date(Date.now() + 100000) } as any;
+    await userAfter!.save();
+
+    // wrong password
+    res = await fetch(`${handle.baseUrl}/api/auth/change-username`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ password: 'wrong', otp: testOtp }),
+    });
+    expect(res.status).toBe(401);
+
+    // correct change
+    res = await fetch(`${handle.baseUrl}/api/auth/change-username`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ password: 'pw', otp: testOtp }),
+    });
+    expect(res.status).toBe(200);
+
+    const updated = await User.findOne({ email: 'orig@example.com' });
+    expect(updated?.username).toBe('newname');
+    expect(updated?.usernameChange).toBeUndefined();
+
+    await handle.close();
+  });
 });

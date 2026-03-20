@@ -51,6 +51,20 @@ if (useInMemory) {
       return { deletedCount: 1 };
     }
 
+    static async deleteMany(query: any) {
+      let deletedCount = 0;
+      if (query?.user) {
+        const userId = String(query.user);
+        for (const [k, v] of records.entries()) {
+          if (v.user === userId) {
+            records.delete(k);
+            deletedCount++;
+          }
+        }
+      }
+      return { deletedCount };
+    }
+
     static async findOne(query: any) {
       const tokenHash = query?.tokenHash;
       if (!tokenHash) return null;

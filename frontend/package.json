@@ -5,9 +5,9 @@
   "private": true,
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "set ESBUILD_BINARY_PATH=.\\esbuild-proxy.cmd&& vite build",
     "preview": "vite preview",
-    "lint": "eslint --ext .ts,.tsx src"
+    "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "axios": "^1.4.0",

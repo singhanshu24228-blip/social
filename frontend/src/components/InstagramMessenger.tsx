@@ -14,6 +14,19 @@ export default function InstagramMessenger({ user }: { user: any }) {
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Default infinity logo as SVG data URL
+  const defaultInfinityLogo = React.useMemo(() => {
+    return `data:image/svg+xml;base64,${btoa(`
+      <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="24" cy="24" r="22" fill="#f3f4f6" stroke="#3b82f6" stroke-width="2"/>
+        <path d="M15 21c0-3.3 2.7-6 6-6s6 2.7 6 6c0 2.1-1.1 4-2.8 5l-3.2 2.2c-1.7 1.1-2.8 3-2.8 5 0 3.3 2.7 6 6 6s6-2.7 6-6" 
+              stroke="#3b82f6" stroke-width="2" stroke-linecap="round" fill="none"/>
+        <circle cx="21" cy="21" r="1.5" fill="#3b82f6"/>
+        <circle cx="27" cy="27" r="1.5" fill="#3b82f6"/>
+      </svg>
+    `)}`;
+  }, []);
+
   useEffect(() => {
     loadConversations();
   }, []);
@@ -185,7 +198,7 @@ export default function InstagramMessenger({ user }: { user: any }) {
                 <div className="flex items-center gap-3">
                   <div className="relative">
                     <img
-                      src={conv.user?.profilePicture || 'https://via.placeholder.com/48'}
+                      src={conv.user?.profilePicture ? resolveMediaUrl(conv.user.profilePicture) : defaultInfinityLogo}
                       alt={conv.user?.username}
                       className="w-12 h-12 rounded-full object-cover"
                     />
@@ -212,7 +225,7 @@ export default function InstagramMessenger({ user }: { user: any }) {
           <div className="p-4 border-b border-gray-200 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <img
-                src={activeChat.user?.profilePicture || 'https://via.placeholder.com/40'}
+                src={activeChat.user?.profilePicture ? resolveMediaUrl(activeChat.user.profilePicture) : defaultInfinityLogo}
                 alt={activeChat.user?.username}
                 className="w-10 h-10 rounded-full object-cover"
               />
@@ -240,7 +253,7 @@ export default function InstagramMessenger({ user }: { user: any }) {
               <div className="flex justify-center items-center h-full">
                 <div className="text-center">
                   <img
-                    src={activeChat.user?.profilePicture || 'https://via.placeholder.com/80'}
+                      src={activeChat.user?.profilePicture ? resolveMediaUrl(activeChat.user.profilePicture) : defaultInfinityLogo}
                     alt={activeChat.user?.username}
                     className="w-20 h-20 rounded-full mx-auto mb-4 object-cover"
                   />

@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { createPost, getPosts, getPostById, updatePost, deletePost, likePost, addComment, getPostsByUsername, addReaction, getPrivateSongs } from '../controllers/postsController.js';
-import { requireAuth } from '../middleware/auth.js';
+import { createPost, getPosts, getPostById, updatePost, deletePost, likePost, addComment, getPostsByUsername, addReaction, getPrivateSongs, createUnlockOrder, verifyUnlockPayment } from '../controllers/postsController.js';
+import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -138,7 +138,7 @@ router.post(
     res.status(500).json({ message: 'File validation failed' });
   }
 });
-router.get('/', getPosts);
+router.get('/', optionalAuth, getPosts);
 router.get('/private-songs', requireAuth, getPrivateSongs);
 router.get('/user/:username', requireAuth, getPostsByUsername);
 router.get('/:id', requireAuth, getPostById);
@@ -147,5 +147,7 @@ router.delete('/:id', requireAuth, deletePost);
 router.post('/:id/like', requireAuth, likePost);
 router.post('/:id/comment', requireAuth, addComment);
 router.post('/:id/react', requireAuth, addReaction);
+router.post('/:id/unlock/order', requireAuth, createUnlockOrder);
+router.post('/:id/unlock/verify', requireAuth, verifyUnlockPayment);
 
 export default router;

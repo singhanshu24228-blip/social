@@ -4,6 +4,7 @@ import { AuthRequest } from '../middleware/auth.js';
 import { ioInstance } from '../socket/index.js';
 import { createNotification } from './notificationController.js';
 import { textToSpeech } from '../utils/yourVoiceAI.js';
+import { getBlockedUserIdsForViewer, isEitherUserBlocked } from '../utils/blocking.js';
 
 export const sendPrivateMessage = async (req: AuthRequest, res: Response) => {
   try {
@@ -13,6 +14,10 @@ export const sendPrivateMessage = async (req: AuthRequest, res: Response) => {
     console.log('Sending message:', { toUserId, message, isVoice, voiceGender });
     
     if (!toUserId || (!message && !mediaUrl)) return res.status(400).json({ message: 'Missing fields' });
+
+    if (await isEitherUserBlocked(String(senderId), String(toUserId))) {
+      return res.status(403).json({ message: 'You cannot message this user' });
+    }
 
     let voiceUrl = null;
 
@@ -99,6 +104,10 @@ export const getPrivateMessages = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ message: 'Invalid user ID' });
     }
 
+    if (await isEitherUserBlocked(String(userId), String(otherUserId))) {
+      return res.status(403).json({ message: 'Conversation not available' });
+    }
+
     let msgs;
     try {
       msgs = await PrivateMessage.find({
@@ -183,6 +192,24 @@ export const addMessageReaction = async (req: AuthRequest, res: Response) => {
     ioInstance?.to(`user:${pm.senderId}`).emit('message:reaction', { messageId, emoji, userId: req.user._id, reactions: pm.reactions });
     ioInstance?.to(`user:${pm.receiverId}`).emit('message:reaction', { messageId, emoji, userId: req.user._id, reactions: pm.reactions });
 
+    // Create an in-app notification for the other party (Instagram-style).
+    // If you react to your own message, skip.
+    const reactorId = String(req.user._id);
+    const senderId = String(pm.senderId);
+    const receiverId = String(pm.receiverId);
+    const notifyUserId = reactorId === senderId ? receiverId : senderId;
+    if (notifyUserId && notifyUserId !== reactorId) {
+      await createNotification(
+        notifyUserId,
+        reactorId,
+        'reaction',
+        emoji,
+        undefined,
+        undefined,
+        String(pm._id)
+      );
+    }
+
     res.json({ ok: true, reactions: pm.reactions });
   } catch (err) {
     console.error(err);
@@ -217,6 +244,7 @@ export const getConversationList = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user._id;
     const User = (await import('../models/User.js')).default;
+    const blockedUserIds = await getBlockedUserIdsForViewer(String(userId));
 
     // Get all conversations with last message
     const conversations = await PrivateMessage.aggregate([
@@ -253,8 +281,10 @@ export const getConversationList = async (req: AuthRequest, res: Response) => {
       }
     ]);
 
+    const visibleConversations = conversations.filter((conv: any) => !blockedUserIds.includes(String(conv._id)));
+
     const result = await Promise.all(
-      conversations.map(async (conv: any) => {
+      visibleConversations.map(async (conv: any) => {
         const otherUser = await User.findById(conv._id).select('username name profilePicture isOnline').lean();
         return {
           userId: conv._id,
