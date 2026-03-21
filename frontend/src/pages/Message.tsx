@@ -3477,16 +3477,21 @@ export default function Message({ groupName }: { groupName?: string | null }) {
             >
               👁️
             </button>
-            {timeInfo?.isInEntryWindow && (
-              <button
-                onClick={handleEnterNightMode}
-                disabled={enteringNightMode}
-                className="text-2xl hover:scale-110 transition-transform cursor-pointer disabled:opacity-50 animate-pulse"
-                title="Enter Night Mode"
-              >
-                🌙
-              </button>
-            )}
+            <button
+              onClick={handleEnterNightMode}
+              disabled={enteringNightMode || !timeInfo?.isInEntryWindow}
+              className="text-2xl hover:scale-110 transition-transform cursor-pointer disabled:opacity-50 animate-pulse"
+              title={
+                timeInfo?.isInEntryWindow
+                  ? 'Enter Night Mode'
+                  : timeInfo?.message
+                    ? timeInfo.message
+                    : 'Night mode not available now'
+              }
+              aria-label="Enter Night Mode"
+            >
+              🌙
+            </button>
           </div>
 
           {postSearchOpen && (

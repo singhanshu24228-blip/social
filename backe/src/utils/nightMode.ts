@@ -9,35 +9,97 @@ export interface NightModeTimeInfo {
   message: string;
 }
 const NIGHT_ENTRY_START = 22; // 10:00 PM
-const NIGHT_ENTRY_END_HOUR = 5; // 3:30 AM
+const NIGHT_ENTRY_END_HOUR = 3; // 3:30 AM
 const NIGHT_ENTRY_END_MINUTE = 30;
-const NIGHT_FULL_END = 5; 
-export function isCurrentlyInNightMode(): boolean {
-  const now = new Date();
-  const hour = now.getHours();
-  if (hour >= NIGHT_ENTRY_START) {
-    return true;
-  }
-  if (hour < NIGHT_FULL_END) {
-    
-    return true;
-  }
+const NIGHT_FULL_END = 5;
+
+const NIGHT_MODE_TIMEZONE =
+  process.env.NIGHT_MODE_TIMEZONE ||
+  process.env.NIGHT_MODE_TZ ||
+  // Default to IST because the product copy/UI uses 10 PM–3:30 AM / 5 AM in local time.
+  'Asia/Kolkata';
+
+type ZonedParts = {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+};
+
+function getZonedParts(date: Date, timeZone: string): ZonedParts {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  });
+
+  const parts = dtf.formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || '0';
+
+  return {
+    year: Number(get('year')),
+    month: Number(get('month')),
+    day: Number(get('day')),
+    hour: Number(get('hour')),
+    minute: Number(get('minute')),
+    second: Number(get('second')),
+  };
+}
+
+function addDaysToYMD(year: number, month: number, day: number, daysToAdd: number) {
+  const d = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  d.setUTCDate(d.getUTCDate() + daysToAdd);
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
+}
+
+function getTimeZoneOffsetMs(date: Date, timeZone: string) {
+  const z = getZonedParts(date, timeZone);
+  const asUTC = Date.UTC(z.year, z.month - 1, z.day, z.hour, z.minute, z.second);
+  return asUTC - date.getTime();
+}
+
+function zonedTimeToUtc(parts: Omit<ZonedParts, 'second'> & { second?: number }, timeZone: string) {
+  const second = typeof parts.second === 'number' ? parts.second : 0;
+  const utcBase = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, second);
+
+  // One to two iterations to handle DST/offset transitions accurately.
+  let utc = utcBase - getTimeZoneOffsetMs(new Date(utcBase), timeZone);
+  utc = utcBase - getTimeZoneOffsetMs(new Date(utc), timeZone);
+  return new Date(utc);
+}
+
+function isCurrentlyInNightModeAt(date: Date, timeZone: string): boolean {
+  const { hour } = getZonedParts(date, timeZone);
+  if (hour >= NIGHT_ENTRY_START) return true;
+  if (hour < NIGHT_FULL_END) return true;
   return false;
 }
-export function isInNightEntryWindow(): boolean {
-  const now = new Date();
-  const hour = now.getHours();
-  const minute = now.getMinutes();
+
+function isInNightEntryWindowAt(date: Date, timeZone: string): boolean {
+  const { hour, minute } = getZonedParts(date, timeZone);
 
   // 10 PM to 11:59 PM
-  if (hour >= NIGHT_ENTRY_START) {
-    return true;
-  }
-  // Midnight (hour 0) to 3:30 AM
-  if (hour < NIGHT_ENTRY_END_HOUR || (hour === NIGHT_ENTRY_END_HOUR && minute <= NIGHT_ENTRY_END_MINUTE)) {
-    return true;
-  }
+  if (hour >= NIGHT_ENTRY_START) return true;
+
+  // Midnight to 3:30 AM (inclusive)
+  if (hour < NIGHT_ENTRY_END_HOUR) return true;
+  if (hour === NIGHT_ENTRY_END_HOUR && minute <= NIGHT_ENTRY_END_MINUTE) return true;
+
   return false;
+}
+
+export function isCurrentlyInNightMode(): boolean {
+  return isCurrentlyInNightModeAt(new Date(), NIGHT_MODE_TIMEZONE);
+}
+export function isInNightEntryWindow(): boolean {
+  return isInNightEntryWindowAt(new Date(), NIGHT_MODE_TIMEZONE);
 }
 
 
@@ -46,11 +108,12 @@ export function isDaytime(): boolean {
 }
 export function getNightModeTimeInfo(): NightModeTimeInfo {
   const now = new Date();
-  const hour = now.getHours();
-  const minute = now.getMinutes();
+  const nowParts = getZonedParts(now, NIGHT_MODE_TIMEZONE);
+  const hour = nowParts.hour;
+  const minute = nowParts.minute;
 
-  const isInNight = isCurrentlyInNightMode();
-  const isInEntry = isInNightEntryWindow();
+  const isInNight = isCurrentlyInNightModeAt(now, NIGHT_MODE_TIMEZONE);
+  const isInEntry = isInNightEntryWindowAt(now, NIGHT_MODE_TIMEZONE);
 
   let message = '';
   let timeUntilNightMode: number | undefined;
@@ -58,21 +121,23 @@ export function getNightModeTimeInfo(): NightModeTimeInfo {
 
   if (isInNight) {
     if (hour >= NIGHT_ENTRY_START || hour < NIGHT_FULL_END) {
-      const nextDay = new Date(now);
-      nextDay.setHours(NIGHT_FULL_END, 0, 0, 0);
-      if (now >= nextDay) {
-        nextDay.setDate(nextDay.getDate() + 1);
-      }
-      timeUntilDayMode = nextDay.getTime() - now.getTime();
+      const add = hour >= NIGHT_ENTRY_START ? 1 : 0;
+      const ymd = addDaysToYMD(nowParts.year, nowParts.month, nowParts.day, add);
+      const target = zonedTimeToUtc(
+        { year: ymd.year, month: ymd.month, day: ymd.day, hour: NIGHT_FULL_END, minute: 0, second: 0 },
+        NIGHT_MODE_TIMEZONE
+      );
+      timeUntilDayMode = target.getTime() - now.getTime();
       message = `🌙 Night Mode Active - Day mode at 5:00 AM`;
     }
   } else {
-    const nextNight = new Date(now);
-    nextNight.setHours(NIGHT_ENTRY_START, 0, 0, 0);
-    if (now >= nextNight) {
-      nextNight.setDate(nextNight.getDate() + 1);
-    }
-    timeUntilNightMode = nextNight.getTime() - now.getTime();
+    const add = hour >= NIGHT_ENTRY_START ? 1 : 0;
+    const ymd = addDaysToYMD(nowParts.year, nowParts.month, nowParts.day, add);
+    const target = zonedTimeToUtc(
+      { year: ymd.year, month: ymd.month, day: ymd.day, hour: NIGHT_ENTRY_START, minute: 0, second: 0 },
+      NIGHT_MODE_TIMEZONE
+    );
+    timeUntilNightMode = target.getTime() - now.getTime();
     message = `Night mode unlocks at 10:00 PM. Please wait 🌙`;
   }
 
@@ -102,10 +167,12 @@ export function shouldUserBeInNightMode(
 
   const now = new Date();
   const enteredDate = new Date(nightModeEnteredAt);
-  const enteredHour = enteredDate.getHours();
-  const currentHour = now.getHours();
+  const enteredParts = getZonedParts(enteredDate, NIGHT_MODE_TIMEZONE);
+  const nowParts = getZonedParts(now, NIGHT_MODE_TIMEZONE);
+  const enteredHour = enteredParts.hour;
+  const currentHour = nowParts.hour;
 
-  const enteredDuringWindow = enteredHour >= NIGHT_ENTRY_START || enteredHour < NIGHT_ENTRY_END_HOUR;
+  const enteredDuringWindow = isInNightEntryWindowAt(enteredDate, NIGHT_MODE_TIMEZONE);
   
   if (!enteredDuringWindow) {
     return false;
@@ -121,7 +188,7 @@ export function shouldUserBeInNightMode(
   // If they entered in the evening (10 PM - 11:59 PM) and it's now early morning (before 5 AM)
   if (
     enteredHour >= NIGHT_ENTRY_START &&
-    enteredDate.toDateString() !== now.toDateString() &&
+    (enteredParts.year !== nowParts.year || enteredParts.month !== nowParts.month || enteredParts.day !== nowParts.day) &&
     currentHour < NIGHT_FULL_END
   ) {
     return true;

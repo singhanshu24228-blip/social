@@ -20,6 +20,17 @@ const NightModePanel: React.FC<NightModePanelProps> = ({ onEnterNightMode }) => 
   const [error, setError] = useState('');
   const [timeLeft, setTimeLeft] = useState<string>('');
 
+  const isLoading = !timeInfo;
+
+  const fallbackTimeInfo: TimeInfo = {
+    isCurrentlyInNightMode: false,
+    isInEntryWindow: false,
+    timeUntilNightMode: null,
+    timeUntilDayMode: null,
+    message: isLoading ? 'Loading night mode info…' : 'Night mode info unavailable.',
+    formattedTimeUntilNightMode: null,
+  };
+
   useEffect(() => {
     // Initial fetch
     fetchTimeInfo();
@@ -42,15 +53,24 @@ const NightModePanel: React.FC<NightModePanelProps> = ({ onEnterNightMode }) => 
       setTimeInfo(response.data);
       setError('');
       updateCountdown(response.data);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching time info:', err);
+      const status = err?.response?.status;
+      const statusText = err?.response?.statusText;
+      const hint = status
+        ? `Request failed (${status}${statusText ? ` ${statusText}` : ''}).`
+        : 'Network error.';
+      setError(`${hint} Check your production API URL (VITE_API_URL) / reverse proxy.`);
+      // Unblock UI so users can see the entry point (disabled) + error message.
+      setTimeInfo((prev) => prev ?? fallbackTimeInfo);
     }
   };
 
   const updateCountdown = (data?: TimeInfo) => {
     const info = data || timeInfo;
-    if (info?.timeUntilNightMode) {
-      const seconds = Math.floor(info.timeUntilNightMode / 1000);
+    const remainingMs = info?.isCurrentlyInNightMode ? info?.timeUntilDayMode : info?.timeUntilNightMode;
+    if (typeof remainingMs === 'number' && remainingMs > 0) {
+      const seconds = Math.floor(remainingMs / 1000);
       const hours = Math.floor(seconds / 3600);
       const minutes = Math.floor((seconds % 3600) / 60);
       const secs = seconds % 60;
@@ -62,6 +82,8 @@ const NightModePanel: React.FC<NightModePanelProps> = ({ onEnterNightMode }) => 
       } else {
         setTimeLeft(`${secs}s`);
       }
+    } else {
+      setTimeLeft('');
     }
   };
 
@@ -85,21 +107,7 @@ const NightModePanel: React.FC<NightModePanelProps> = ({ onEnterNightMode }) => 
     }
   };
 
-  if (!timeInfo) {
-    return (
-      <div className="flex items-center justify-center p-8 min-h-screen">
-        <div className="text-center">
-          <div className="text-gray-500 mb-4">Loading night mode info...</div>
-          <div className="bg-blue-100 border border-blue-400 p-4 rounded text-sm text-left max-w-md">
-            <p className="font-bold mb-2">🔍 NightModePanel Debug:</p>
-            <p>Component mounted: ✓</p>
-            <p>Fetching time info...</p>
-            {error && <p className="text-red-600 mt-2">Error: {error}</p>}
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const displayInfo = timeInfo || fallbackTimeInfo;
 
   return (
     <div className="w-full max-w-md mx-auto">
@@ -108,20 +116,24 @@ const NightModePanel: React.FC<NightModePanelProps> = ({ onEnterNightMode }) => 
         {/* Moon Icon Entry Point */}
         <button
           onClick={handleEnterNightMode}
-          disabled={attempting || !timeInfo.isInEntryWindow}
+          disabled={attempting || !displayInfo.isInEntryWindow}
           className="text-8xl hover:scale-110 transition-transform duration-300 cursor-pointer animate-pulse disabled:opacity-50"
-          title={timeInfo.isInEntryWindow ? "Click to enter Night Mode" : "Night Mode not available now"}
+          title={displayInfo.isInEntryWindow ? "Click to enter Night Mode" : "Night Mode not available now"}
         >
           🌙
         </button>
 
         {/* Message */}
         <div className="text-center space-y-2">
-          <p className="text-xl font-semibold text-gray-700">{timeInfo.message}</p>
+          <p className="text-xl font-semibold text-gray-700">{displayInfo.message}</p>
           {timeLeft && (
             <p className="text-lg text-gray-500">
-              {timeInfo.isInEntryWindow ? 'Time until Day Mode:' : 'Time until Night Mode:'} <span className="font-bold text-gray-700">{timeLeft}</span>
+              {displayInfo.isCurrentlyInNightMode ? 'Time until Day Mode:' : 'Time until Night Mode:'}{' '}
+              <span className="font-bold text-gray-700">{timeLeft}</span>
             </p>
+          )}
+          {isLoading && !error && (
+            <p className="text-sm text-gray-400">Fetching latest window from server…</p>
           )}
         </div>
 
@@ -133,7 +145,7 @@ const NightModePanel: React.FC<NightModePanelProps> = ({ onEnterNightMode }) => 
         )}
 
         {/* Try Now Button - Only shown if we can enter */}
-        {timeInfo.isInEntryWindow && (
+        {displayInfo.isInEntryWindow && (
           <button
             onClick={handleEnterNightMode}
             disabled={attempting}
