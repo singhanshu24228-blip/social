@@ -218,6 +218,16 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [showWallpaperPicker, setShowWallpaperPicker] = useState(false);
 
+  // Auto-clear msg after 5 seconds
+  useEffect(() => {
+    if (msg) {
+      const timer = setTimeout(() => {
+        setMsg('');
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [msg]);
+
   // handlers
   const sendDeleteOtp = async () => {
     try {
@@ -506,7 +516,31 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       // ignore
     }
   }, [mode]);
-  
+
+  // Handle back button navigation - close app when trying to go back to auth pages
+  useEffect(() => {
+    // Replace current history state to prevent back navigation to auth pages
+    window.history.replaceState({ page: 'app' }, '', window.location.pathname);
+
+    const handlePopState = (event: PopStateEvent) => {
+      // If user tries to go back and there's no previous app state, close the app
+      if (!event.state || event.state.page !== 'app') {
+        // Close the current tab/window
+        window.close();
+        // Fallback: if window.close() doesn't work (some browsers restrict it), redirect to blank page
+        setTimeout(() => {
+          window.location.href = 'about:blank';
+        }, 100);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
   const fetchNightModeTime = async () => {
     try {
       const response = await getTimeUntilNightMode();
@@ -770,14 +804,31 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
     const observer = new IntersectionObserver(
       (entries) => {
-        const visible = entries
-          .filter((e) => e.isIntersecting)
-          .sort((a, b) => (b.intersectionRatio || 0) - (a.intersectionRatio || 0));
+        // Find posts that are in the middle of the screen
+        const viewportHeight = window.innerHeight;
+        const viewportCenter = viewportHeight / 2;
+        const centerTolerance = viewportHeight * 0.2; // 20% of screen height tolerance
 
-        const nextId = visible[0]?.target?.getAttribute('data-post-id') || '';
-        setVisiblePostId((prev) => (prev === nextId ? prev : nextId));
+        let centerPostId = '';
+        let minDistanceToCenter = Infinity;
+
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const rect = entry.boundingClientRect;
+            const elementCenter = rect.top + rect.height / 2;
+            const distanceToCenter = Math.abs(elementCenter - viewportCenter);
+
+            // Check if element center is within tolerance of viewport center
+            if (distanceToCenter < centerTolerance && distanceToCenter < minDistanceToCenter) {
+              centerPostId = entry.target.getAttribute('data-post-id') || '';
+              minDistanceToCenter = distanceToCenter;
+            }
+          }
+        });
+
+        setVisiblePostId((prev) => (prev === centerPostId ? prev : centerPostId));
       },
-      { threshold: [0.3, 0.5, 0.7] }
+      { threshold: [0.1, 0.3, 0.5, 0.7, 0.9] } // More granular thresholds
     );
 
     els.forEach((el) => observer.observe(el));

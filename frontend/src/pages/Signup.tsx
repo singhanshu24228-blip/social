@@ -63,23 +63,70 @@ export default function Signup() {
   };
 
   return (
-    <div>
-      <h2 className="text-lg font-semibold">Signup</h2>
-      <input placeholder="Username" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} className="w-full p-2 border rounded mb-2 text-black shadow-lg shadow-black/100" />
-      <input placeholder="Full name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full p-2 border rounded mb-2 text-black mt-2 shadow-lg shadow-black/100" />
-      <input placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full p-2 border rounded mb-2 text-black mt-2 shadow-lg shadow-black/100" />
-      <input placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="w-full p-2 border rounded mb-2 text-black mt-2 shadow-lg shadow-black/100" />
-      <input placeholder="Password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="w-full p-2 border rounded mb-2 text-black mt-2 shadow-lg shadow-black/100" />
-      <button onClick={handleSignup} disabled={loading} className="px-4 py-2 bg-blue-600 text-white rounded mt-2">{loading ? 'Signing up...' : 'Sign up (requires location)'}</button>
-
-      {noGeo && (
-        <div className="mt-2">
-          <div className="text-sm text-yellow-700 mb-2">Location not available — you can sign up without location (this uses a fallback coordinate).</div>
-          <button onClick={signUpWithoutLocation} disabled={loading} className="px-3 py-1 bg-gray-200 rounded">Sign up without location</button>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900 p-4">
+      <div className="w-full max-w-md bg-white/85 backdrop-blur-md rounded-3xl shadow-2xl border border-white/20 p-6">
+        <div className="mb-4 text-center">
+          <h2 className="text-3xl font-extrabold text-slate-800">Create your account</h2>
+          <p className="text-sm text-slate-500 mt-1">Join Sociovio and connect with friends instantly.</p>
         </div>
-      )}
 
-      {msg && <p className="mt-2 text-sm text-red-600">{msg}</p>}
+        <div className="space-y-3">
+          <input
+            placeholder="Username"
+            value={form.username}
+            onChange={(e) => setForm({ ...form, username: e.target.value })}
+            className="w-full p-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
+          />
+          <input
+            placeholder="Full name"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            className="w-full p-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
+          />
+          <input
+            placeholder="Email"
+            value={form.email}
+            onChange={(e) => setForm({ ...form, email: e.target.value })}
+            className="w-full p-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
+          />
+          <input
+            placeholder="Phone"
+            value={form.phone}
+            onChange={(e) => setForm({ ...form, phone: e.target.value })}
+            className="w-full p-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
+          />
+          <input
+            placeholder="Password"
+            type="password"
+            value={form.password}
+            onChange={(e) => setForm({ ...form, password: e.target.value })}
+            className="w-full p-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
+          />
+        </div>
+
+        <button
+          onClick={handleSignup}
+          disabled={loading}
+          className="w-full mt-5 px-4 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-semibold rounded-xl shadow-lg hover:from-indigo-600 hover:to-purple-600 transition-opacity disabled:opacity-50"
+        >
+          {loading ? 'Signing up...' : 'Sign up (requires location)'}
+        </button>
+
+        {noGeo && (
+          <div className="mt-4 p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg">
+            <p className="text-sm">Location not available — use fallback coordinates by signing up without location.</p>
+            <button
+              onClick={signUpWithoutLocation}
+              disabled={loading}
+              className="mt-2 w-full px-3 py-2 bg-slate-100 rounded-lg text-slate-700 hover:bg-slate-200"
+            >
+              Sign up without location
+            </button>
+          </div>
+        )}
+
+        {msg && <p className="mt-4 text-center text-sm font-medium text-red-600">{msg}</p>}
+      </div>
     </div>
   );
 }

@@ -68,7 +68,7 @@ const Post: React.FC<PostProps> = ({ post, hideInteractions = false, hideAudioCo
       ([entry]) => {
         setIsVisible(entry.isIntersecting);
       },
-      { threshold: 0.5 } // Play when 50% of the post is visible
+      { threshold: 0.7 } // Play when 70% of the post is visible
     );
 
     const currentElement = audioRef.current?.parentElement;

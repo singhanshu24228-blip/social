@@ -60,66 +60,116 @@ export default function Login() {
   };
 
   return (
-    <div>
-      {stage === 'login' && (
-        <>
-          <h2 className="text-lg font-semibold">Login</h2>
-          <div className="flex gap-4 mb-4 mt-2">
-            <label className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="userType"
-                value="user"
-                checked={form.userType === 'user'}
-                onChange={(e) => setForm({ ...form, userType: 'user' })}
-              />
-              <span>User</span>
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="userType"
-                value="admin"
-                checked={form.userType === 'admin'}
-                onChange={(e) => setForm({ ...form, userType: 'admin' })}
-              />
-              <span>Admin</span>
-            </label>
-          </div>
-          <input placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full p-2 border rounded mb-2 text-black mt-2 shadow-lg shadow-black/100" />
-          <input placeholder="Password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="w-full p-2 border rounded mb-2 text-black mt-2 shadow-lg shadow-black/100" />
-          <button onClick={handleLogin} className="px-4 py-2 bg-green-600 text-white rounded mt-2">Login</button>
-          <p className="mt-2 text-sm">
-            <button onClick={() => setStage('forgotEmail')} className="text-blue-600 underline">Forgot password?</button>
-          </p>
-        </>
-      )}
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900 p-4">
+      <div className="w-full max-w-md bg-white/85 backdrop-blur-md rounded-3xl shadow-2xl border border-white/20 p-6">
+        <div className="mb-4 text-center">
+          <h2 className="text-3xl font-extrabold text-slate-800">{stage === 'login' ? 'Welcome Back' : stage === 'forgotEmail' ? 'Forgot Password' : 'Reset Password'}</h2>
+          <p className="text-sm text-slate-500 mt-1">{stage === 'login' ? 'Sign in to your account' : stage === 'forgotEmail' ? 'Get code to reset your password' : 'Set your new password'}</p>
+        </div>
 
-      {stage === 'forgotEmail' && (
-        <>
-          <h2 className="text-lg font-semibold">Forgot password</h2>
-          <input placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full p-2 border rounded mb-2 text-black mt-2 shadow-lg shadow-black/100" />
-          <button onClick={sendOtp} className="px-4 py-2 bg-blue-600 text-white rounded mt-2">Send OTP</button>
-          <p className="mt-2 text-sm">
-            <button onClick={() => setStage('login')} className="text-blue-600 underline">Back to login</button>
-          </p>
-        </>
-      )}
+        {stage === 'login' && (
+          <>
+            <div className="flex gap-2 mb-4 justify-center" role="radiogroup" aria-label="User type">
+              <button
+                onClick={() => setForm({ ...form, userType: 'user' })}
+                className={`px-3 py-2 rounded-full text-sm font-medium ${form.userType === 'user' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700'}`}
+              >
+                User
+              </button>
+              <button
+                onClick={() => setForm({ ...form, userType: 'admin' })}
+                className={`px-3 py-2 rounded-full text-sm font-medium ${form.userType === 'admin' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700'}`}
+              >
+                Admin
+              </button>
+            </div>
 
-      {stage === 'reset' && (
-        <>
-          <h2 className="text-lg font-semibold">Reset password</h2>
-          <input placeholder="Email" value={resetForm.email} readOnly className="w-full p-2 border rounded mb-2 text-black mt-2 shadow-lg shadow-black/100 bg-gray-100" />
-          <input placeholder="OTP code" value={resetForm.otp} onChange={(e) => setResetForm({ ...resetForm, otp: e.target.value })} className="w-full p-2 border rounded mb-2 text-black mt-2 shadow-lg shadow-black/100" />
-          <input placeholder="New password" type="password" value={resetForm.password} onChange={(e) => setResetForm({ ...resetForm, password: e.target.value })} className="w-full p-2 border rounded mb-2 text-black mt-2 shadow-lg shadow-black/100" />
-          <button onClick={doReset} className="px-4 py-2 bg-green-600 text-white rounded mt-2">Change password</button>
-          <p className="mt-2 text-sm">
-            <button onClick={() => setStage('login')} className="text-blue-600 underline">Back to login</button>
-          </p>
-        </>
-      )}
+            <input
+              placeholder="Email"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              className="w-full p-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm mb-3"
+            />
+            <input
+              placeholder="Password"
+              type="password"
+              value={form.password}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+              className="w-full p-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm mb-3"
+            />
+            <button
+              onClick={handleLogin}
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-semibold shadow-lg hover:from-indigo-600 hover:to-purple-600 transition"
+            >
+              Login
+            </button>
+            <p className="mt-3 text-center text-sm">
+              <button onClick={() => setStage('forgotEmail')} className="text-indigo-600 font-medium hover:text-indigo-700">
+                Forgot password?
+              </button>
+            </p>
+          </>
+        )}
 
-      {msg && <p className="mt-2 text-sm">{msg}</p>}
+        {stage === 'forgotEmail' && (
+          <>
+            <input
+              placeholder="Email"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              className="w-full p-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm mb-3"
+            />
+            <button
+              onClick={sendOtp}
+              className="w-full py-3 rounded-xl bg-blue-600 text-white font-semibold shadow-lg hover:bg-blue-700 transition"
+            >
+              Send OTP
+            </button>
+            <p className="mt-3 text-center text-sm">
+              <button onClick={() => setStage('login')} className="text-indigo-600 font-medium hover:text-indigo-700">
+                Back to login
+              </button>
+            </p>
+          </>
+        )}
+
+        {stage === 'reset' && (
+          <>
+            <input
+              placeholder="Email"
+              value={resetForm.email}
+              readOnly
+              className="w-full p-3 rounded-xl border border-slate-200 bg-slate-100 text-slate-600 shadow-sm mb-3"
+            />
+            <input
+              placeholder="OTP code"
+              value={resetForm.otp}
+              onChange={(e) => setResetForm({ ...resetForm, otp: e.target.value })}
+              className="w-full p-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm mb-3"
+            />
+            <input
+              placeholder="New password"
+              type="password"
+              value={resetForm.password}
+              onChange={(e) => setResetForm({ ...resetForm, password: e.target.value })}
+              className="w-full p-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm mb-3"
+            />
+            <button
+              onClick={doReset}
+              className="w-full py-3 rounded-xl bg-green-600 text-white font-semibold shadow-lg hover:bg-green-700 transition"
+            >
+              Change password
+            </button>
+            <p className="mt-3 text-center text-sm">
+              <button onClick={() => setStage('login')} className="text-indigo-600 font-medium hover:text-indigo-700">
+                Back to login
+              </button>
+            </p>
+          </>
+        )}
+
+        {msg && <p className="mt-4 text-center text-sm font-medium text-red-600">{msg}</p>}
+      </div>
     </div>
   );
 }
