@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "vite",
-    "build": "set ESBUILD_BINARY_PATH=.\\esbuild-proxy.cmd&& vite build",
+    "build": "vite build",
     "preview": "vite preview",
     "lint": "tsc -p tsconfig.json --noEmit"
   },
