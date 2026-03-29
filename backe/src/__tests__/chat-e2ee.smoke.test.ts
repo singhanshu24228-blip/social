@@ -178,7 +178,7 @@ describe('chat e2ee smoke', () => {
       });
       await group.save();
 
-      const { io: ioClient } = await import('../../../frontend/node_modules/socket.io-client/build/cjs/index.js');
+      const { io: ioClient } = await import('socket.io-client');
       const socket = ioClient(appServer.handle.baseUrl, {
         transports: ['websocket'],
         extraHeaders: {
