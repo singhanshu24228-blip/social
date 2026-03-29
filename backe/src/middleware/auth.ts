@@ -24,8 +24,6 @@ export const requireAuth = async (req: AuthRequest, res: Response, next: NextFun
     if (!user) return res.status(401).json({ message: 'Invalid token' });
     req.user = user;
 
-    // CSRF protection is only needed for cookie-based auth.
-    // For Bearer tokens in the Authorization header, CSRF is not applicable.
     if (tokenFromCookie) {
       const method = (req.method || '').toUpperCase();
       if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
@@ -61,7 +59,7 @@ export const optionalAuth = async (req: AuthRequest, res: Response, next: NextFu
         req.user = user;
       }
     } catch (err) {
-      // Silently ignore token errors; request proceeds as unauthenticated
+      
       console.warn('JWT verify failed in optionalAuth', err);
     }
   }

@@ -11,7 +11,6 @@ This folder contains the backend for Contact Local. Features scaffolded:
 - Endpoint: GET /api/users/check-username?username=...&lat=...&lng=... — rate-limited username availability check
 - Endpoint: GET /api/users/nearby?lat=...&lng=... — returns users within 2 KM with approximate distance (meters) and online status (exact location is never exposed)
 - Socket.io integration with JWT auth; presence updates (online/offline) are emitted via 'presence:update' events
-- Group auto-creation logic: `ensureGroupsForLocation(coords)` creates 1KM and 2KM groups for a derived areaCode/pincode (now uses Nominatim reverse geocoding to derive a 3-letter area code and postcode with fallback to a pseudo pincode)
 - Endpoints:
   - `GET /api/groups/available?lat=..&lng=..` (auth) — lists groups within 2KM and whether the user is a member
   - `POST /api/groups/:groupId/join` (auth) — join a group if within allowed range

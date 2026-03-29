@@ -1,5 +1,5 @@
 import express from 'express';
-import { updateLocation, checkUsername, getNearbyUsers, getRandomUsers, findUsersByUsername, getUserProfile, followUser, unfollowUser, getFollowing, getFollowers, getFollowingList, updateProfilePicture, updateBio, blockUser, unblockUser, listBlockedUsers } from '../controllers/usersController.js';
+import { updateLocation, checkUsername, getNearbyUsers, getRandomUsers, findUsersByUsername, getUserProfile, followUser, unfollowUser, getFollowing, getFollowers, getFollowingList, updateProfilePicture, updateBio, blockUser, unblockUser, listBlockedUsers, setE2EEPublicKey, getE2EEPublicKey } from '../controllers/usersController.js';
 import { requireAuth } from '../middleware/auth.js';
 import { usernameCheckLimiter } from '../middleware/rateLimiter.js';
 
@@ -11,6 +11,8 @@ router.get('/nearby', usernameCheckLimiter, getNearbyUsers);
 router.get('/random', requireAuth, usernameCheckLimiter, getRandomUsers);
 router.get('/find', requireAuth, usernameCheckLimiter, findUsersByUsername);
 router.get('/profile/:id', requireAuth, getUserProfile);
+router.put('/e2ee/key', requireAuth, setE2EEPublicKey);
+router.get('/e2ee/:id', requireAuth, getE2EEPublicKey);
 router.get('/followers', requireAuth, getFollowers);
 router.get('/following', requireAuth, getFollowing);
 router.get('/following-list', requireAuth, getFollowingList);

@@ -92,12 +92,14 @@ export function createApp() {
     },
   }));
 
-  app.use(
-    rateLimit({
-      windowMs: 15 * 60 * 1000,
-      max: 1000,
-    })
-  );
+  // Rate limiting disabled by request: no limit on API call count per IP.
+  // If you want to restore a limit in the future, uncomment and adjust below.
+  // app.use(
+  //   rateLimit({
+  //     windowMs: 15 * 60 * 1000,
+  //     max: 1000,
+  //   })
+  // );
 
   const getOriginHost = (origin: string) => {
     try {
@@ -302,8 +304,9 @@ export async function createServer() {
   await mongoose.connect(uri);
 
   try {
-    const { migrateRoomCommentIndexes } = await import('./scripts/migrateIndexes.js');
+    const { migrateRoomCommentIndexes, migrateGroupIndexes } = await import('./scripts/migrateIndexes.js');
     await migrateRoomCommentIndexes();
+    await migrateGroupIndexes();
   } catch (err) {
     console.warn('Index migration step failed or skipped', err);
   }

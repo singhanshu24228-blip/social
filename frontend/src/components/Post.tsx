@@ -14,7 +14,6 @@ interface PostProps {
     };
     anonymous?: boolean;
     isPrivate?: boolean;
-    isNightPost?: boolean;
     content: string;
     imageUrl?: string;
     songUrl?: string;
@@ -194,7 +193,7 @@ const Post: React.FC<PostProps> = ({ post, hideInteractions = false, hideAudioCo
         </div>
         <div>
           <p className="font-semibold text-black">{isAnonymous ? '⚠️' : post.user?.name}</p>
-          {!isAnonymous && <p className="text-gray-500 text-sm">@{post.user?.username} {(post as any).isPrivate && <span className="ml-1 text-xs bg-gray-200 px-2 py-0.5 rounded">🔒 Private</span>} {(post as any).isNightPost && <span className="ml-1 text-xs bg-purple-100 px-2 py-0.5 rounded">🌙 Night</span>}</p>}
+          {!isAnonymous && <p className="text-gray-500 text-sm">@{post.user?.username} {(post as any).isPrivate && <span className="ml-1 text-xs bg-gray-200 px-2 py-0.5 rounded">🔒 Private</span>}</p>}
         </div>
       </div>
 

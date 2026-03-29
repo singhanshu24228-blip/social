@@ -6,6 +6,17 @@ import NotificationPanel from '../components/NotificationPanel';
 import NightInterface from '../components/NightInterface';
 import ActiveIcon from '../components/ActiveIcon';
 import { getTimeUntilNightMode, enterNightMode } from '../services/api';
+import {
+  decryptFromGroup,
+  decryptFromPeer,
+  encryptForGroup,
+  encryptForPeer,
+  E2EEGroupMembersMissingKeysError,
+  E2EEPeerKeyChangedError,
+  E2EEPeerMissingKeyError,
+  getPeerE2EEPublicKey,
+  registerMyE2EEPublicKey,
+} from '../services/e2ee';
 
 export default function Message({ groupName }: { groupName?: string | null }) {
   const isNightMode = window.location.pathname === '/message/night';
@@ -20,10 +31,19 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   const [mode, setMode] = useState<'groups' | 'private' | 'status' | 'posts' | 'messages' | 'random'>('posts');
   const [showNotifications, setShowNotifications] = useState(false);
   const [groups, setGroups] = useState<any[]>([]);
+  const [myPublicGroups, setMyPublicGroups] = useState<any[]>([]);
+  const [publicGroupSearch, setPublicGroupSearch] = useState('');
+  const [publicGroupResults, setPublicGroupResults] = useState<any[]>([]);
+  const [newPublicGroupName, setNewPublicGroupName] = useState('');
+  const [isCreatingPublicGroup, setIsCreatingPublicGroup] = useState(false);
+  const [isSearchingPublicGroups, setIsSearchingPublicGroups] = useState(false);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [activeGroup, setActiveGroup] = useState<any | null>(null);
   const [privateSearch, setPrivateSearch] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [activePrivateUser, setActivePrivateUser] = useState<any | null>(null);
+  const activePrivateUserId = String(activePrivateUser?._id || activePrivateUser?.id || '');
+  const [peerE2EEState, setPeerE2EEState] = useState<'unknown' | 'ready' | 'missing' | 'changed' | 'error'>('unknown');
   const [text, setText] = useState('');
   const [messages, setMessages] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -37,7 +57,63 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const wallpaperInputRef = useRef<HTMLInputElement | null>(null);
 
+  useEffect(() => {
+    if (!myId) return;
+    registerMyE2EEPublicKey(api).catch((e: any) => {
+      console.warn('Failed to register E2EE key', e);
+    });
+  }, [myId]);
+
+  useEffect(() => {
+    if (!activePrivateUserId) {
+      setPeerE2EEState('unknown');
+      return;
+    }
+
+    let cancelled = false;
+    let interval: any;
+
+    const check = async () => {
+      try {
+        const peer = await getPeerE2EEPublicKey(api, activePrivateUserId);
+        if (cancelled) return;
+        if (peer) {
+          setPeerE2EEState('ready');
+          if (interval) clearInterval(interval);
+        } else {
+          setPeerE2EEState('missing');
+        }
+      } catch (e: any) {
+        if (cancelled) return;
+        if (e instanceof E2EEPeerKeyChangedError) {
+          setPeerE2EEState('changed');
+          if (interval) clearInterval(interval);
+          return;
+        }
+        setPeerE2EEState('error');
+      }
+    };
+
+    check();
+    interval = setInterval(check, 5000);
+
+    return () => {
+      cancelled = true;
+      if (interval) clearInterval(interval);
+    };
+  }, [activePrivateUserId]);
+
   const getUserKey = (u: any) => String(u?._id || u?.id || u?.userId || u?.username || '');
+
+  const getGroupById = (groupId: any) => {
+    const id = String(groupId || '');
+    if (!id) return null;
+    return (
+      (myPublicGroups || []).find((g) => String(g?.id) === id) ||
+      (groups || []).find((g) => String(g?.id) === id) ||
+      null
+    );
+  };
 
   const dedupeUsers = (list: any[]) => {
     const seen = new Set<string>();
@@ -51,6 +127,29 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     }
     return out;
   };
+
+  const decryptGroupPayload = useCallback(async (payload: any) => {
+    if (!payload?.e2ee?.ciphertext) return payload;
+
+    try {
+      const senderId = String(payload.senderId || payload.sender?.id || '');
+      if (!senderId || !myId) return { ...payload, message: '[Encrypted message]' };
+      const decrypted = await decryptFromGroup(api, String(payload.groupId || ''), senderId, myId, payload.e2ee);
+      return { ...payload, message: decrypted };
+    } catch (e) {
+      console.error('Failed to decrypt group message:', e);
+      return { ...payload, message: '[Encrypted message]' };
+    }
+  }, [myId]);
+
+  const loadGroupMessages = useCallback(async (groupId: string) => {
+    const res = await api.get(`/groups/${groupId}/messages`);
+    const loadedMessages = res.data.messages || [];
+    const decryptedMessages = await Promise.all(
+      loadedMessages.map(async (msg: any) => decryptGroupPayload(msg))
+    );
+    setMessages(decryptedMessages);
+  }, [decryptGroupPayload]);
 
   const isUnsupportedImageFile = (f: File) => {
     const t = String((f as any)?.type || '').toLowerCase();
@@ -1030,6 +1129,17 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     const s = connectSocket();
     s.on('connect_error', (err) => console.error('Socket error', err));
 
+    const loadMyPublicGroups = async () => {
+      try {
+        const res = await api.get('/groups/mine?type=public');
+        setMyPublicGroups(res.data?.groups || []);
+      } catch (err) {
+        setMyPublicGroups([]);
+      }
+    };
+
+    loadMyPublicGroups();
+
     navigator.geolocation.getCurrentPosition(async (pos) => {
       const lat = pos.coords.latitude;
       const lng = pos.coords.longitude;
@@ -1083,7 +1193,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       } catch (err: any) {
         setMsg(err?.response?.data?.message || 'Failed to fetch groups');
       }
-    }, () => setMsg('Location permission required'));
+    }, () => setMsg('Location permission denied (nearby groups disabled)'));
 
     try {
       const rc = JSON.parse(localStorage.getItem(`recentPrivateChats_${me?.id}`) || '[]');
@@ -1121,42 +1231,73 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     if (!sock) return;
 
     const onGroupMessage = (payload: any) => {
-      const incomingGroupId = normalizeGroupId(payload);
-      if (incomingGroupId !== String(activeGroup?.id)) {
-        // Show notification for messages in other groups
-        const senderName = payload.sender?.username || payload.sender?.name || 'User';
-        showNotification(`message send by ${senderName}`);
-        // normalize and add to unread messages
-        const normalized = { ...payload, type: 'group', groupName: payload.groupName, normalizedGroupId: incomingGroupId };
-        setUnreadMessages((prev) => [normalized, ...prev]);
-        // Add to recent messages only for incoming (do not add sent messages elsewhere)
-        addToRecentMessagesData(normalized, 'group');
-        return;
-      }
-      setMessages((prev) => {
-        if (payload.localId) {
-          const hasLocal = prev.some((m) => m.localId && m.localId === payload.localId);
-          if (hasLocal) {
-            return prev.map((m) => (m.localId === payload.localId ? payload : m));
-          }
+      (async () => {
+        const incomingGroupId = normalizeGroupId(payload);
+        const decryptedPayload = await decryptGroupPayload(payload);
+
+        if (incomingGroupId !== String(activeGroup?.id)) {
+          const senderName = decryptedPayload.sender?.username || decryptedPayload.sender?.name || 'User';
+          showNotification(`message send by ${senderName}`);
+          const normalized = {
+            ...decryptedPayload,
+            type: 'group',
+            groupName: decryptedPayload.groupName,
+            normalizedGroupId: incomingGroupId,
+          };
+          setUnreadMessages((prev) => [normalized, ...prev]);
+          addToRecentMessagesData(normalized, 'group');
+          return;
         }
-        return [...prev, payload];
-      });
+
+        setMessages((prev) => {
+          if (payload.localId) {
+            const hasLocal = prev.some((m) => m.localId && m.localId === payload.localId);
+            if (hasLocal) {
+              return prev.map((m) => (
+                m.localId === payload.localId
+                  ? { ...decryptedPayload, message: decryptedPayload.message || m.message }
+                  : m
+              ));
+            }
+          }
+          return [...prev, decryptedPayload];
+        });
+      })();
     };
 
-    const onPrivateMessage = (payload: any) => {
+    const onPrivateMessage = async (payload: any) => {
       const senderId = normalizeUserId(payload.sender || { senderId: payload.senderId } || payload);
       const meId = String(me?._id || me?.id || '');
+      
+      // Decrypt the message if it's from someone else
+      let decryptedPayload = payload;
+      try {
+        const peerId =
+          senderId && senderId !== meId
+            ? senderId
+            : String(payload.receiverId || payload.receiver?._id || payload.receiver?.id || '');
+
+        if (payload?.e2ee?.ciphertext && peerId) {
+          const decryptedMessage = await decryptFromPeer(api, peerId, payload.e2ee);
+          decryptedPayload = { ...payload, message: decryptedMessage };
+        }
+      } catch (e) {
+        console.error('Failed to decrypt message:', e);
+        if (payload?.e2ee?.ciphertext) {
+          decryptedPayload = { ...payload, message: '[Encrypted message]' };
+        }
+      }
+      
       if (activePrivateUser && senderId && senderId === String(activePrivateUser._id || activePrivateUser.id)) {
-        setMessages((prev) => [...prev, payload]);
+        setMessages((prev) => [...prev, decryptedPayload]);
         // incoming in active chat - no unread but keep recent updated by incoming
-        addToRecentMessagesData({ ...payload, normalizedSenderId: senderId }, 'private');
+        addToRecentMessagesData({ ...decryptedPayload, normalizedSenderId: senderId }, 'private');
       } else if (senderId && senderId !== meId) {
         // Show notification for messages from other users when chat is not active
-        const senderName = payload.sender?.username || payload.sender?.name || 'User';
+        const senderName = decryptedPayload.sender?.username || decryptedPayload.sender?.name || 'User';
         showNotification(`message send by ${senderName}`);
         // Add to unread messages with normalized sender id
-        const normalized = { ...payload, type: 'private', normalizedSenderId: senderId };
+        const normalized = { ...decryptedPayload, type: 'private', normalizedSenderId: senderId };
         setUnreadMessages((prev) => [normalized, ...prev]);
         // Add to recent messages only for incoming
         addToRecentMessagesData(normalized, 'private');
@@ -1168,7 +1309,13 @@ export default function Message({ groupName }: { groupName?: string | null }) {
         setMessages((prev) => {
           const hasLocal = prev.some((m) => m.localId && m.localId === payload.localId);
           if (hasLocal) {
-            return prev.map((m) => (m.localId === payload.localId ? { ...payload, status: 'sent' } : m));
+            return prev.map((m) => {
+              if (m.localId === payload.localId) {
+                // Keep the original message text for sent messages, update other fields
+                return { ...payload, message: m.message, status: 'sent' };
+              }
+              return m;
+            });
           }
           return [...prev, payload];
         });
@@ -1264,8 +1411,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
       
       try {
-        const res = await api.get(`/groups/${g.id}/messages`);
-        setMessages(res.data.messages || []);
+        await loadGroupMessages(String(g.id));
       } catch (err) {
         
       }
@@ -1274,6 +1420,87 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       history.pushState(null, '', `/message`);
     } catch (err: any) {
       setMsg(err?.response?.data?.message || 'Failed to join group');
+    }
+  };
+
+  const upsertGroup = (list: any[], g: any) => {
+    const id = String(g?.id || g?._id || '');
+    if (!id) return list || [];
+    const next = [...(list || [])];
+    const idx = next.findIndex((x) => String(x?.id || x?._id) === id);
+    if (idx >= 0) next[idx] = { ...next[idx], ...g, id };
+    else next.unshift({ ...g, id });
+    return next;
+  };
+
+  const createAndEnterPublicGroup = async () => {
+    const name = String(newPublicGroupName || '').trim();
+    if (!name) return;
+    try {
+      setIsCreatingPublicGroup(true);
+      setMsg('Creating group...');
+      const res = await api.post('/groups/public/create', { groupName: name });
+      const g = res.data?.group;
+      if (g) {
+        setMyPublicGroups((prev) => upsertGroup(prev, g));
+        setNewPublicGroupName('');
+        setShowCreateGroup(false);
+        await enterGroup(g);
+      }
+      setMsg('');
+    } catch (err: any) {
+      setMsg(err?.response?.data?.message || 'Failed to create group');
+    } finally {
+      setIsCreatingPublicGroup(false);
+    }
+  };
+
+  const searchPublicGroups = async () => {
+    const q = String(publicGroupSearch || '').trim();
+    if (!q) return setPublicGroupResults([]);
+    try {
+      setIsSearchingPublicGroups(true);
+      const res = await api.get(`/groups/public/search?q=${encodeURIComponent(q)}`);
+      setPublicGroupResults(res.data?.groups || []);
+    } catch (err: any) {
+      setMsg(err?.response?.data?.message || 'Group search failed');
+    } finally {
+      setIsSearchingPublicGroups(false);
+    }
+  };
+
+  const joinAndEnterPublicGroup = async (g: any) => {
+    try {
+      setMsg('Joining...');
+      await api.post(`/groups/public/${g.id}/join`);
+      const joined = { ...g, isMember: true, groupType: 'PUBLIC' };
+      setMyPublicGroups((prev) => upsertGroup(prev, joined));
+      setPublicGroupResults((prev) => (prev || []).map((x: any) => (String(x.id) === String(g.id) ? joined : x)));
+      await enterGroup(joined);
+      setMsg('Joined');
+    } catch (err: any) {
+      setMsg(err?.response?.data?.message || 'Failed to join group');
+    }
+  };
+
+  const deleteOwnedGroup = async (group: any) => {
+    if (!group?.id) return;
+    const confirmed = window.confirm(`Delete group "${group.groupName}"? This will remove its messages for everyone.`);
+    if (!confirmed) return;
+
+    try {
+      await api.delete(`/groups/${group.id}`);
+      setGroups((prev) => prev.filter((g) => String(g.id) !== String(group.id)));
+      setMyPublicGroups((prev) => prev.filter((g) => String(g.id) !== String(group.id)));
+      setPublicGroupResults((prev) => prev.filter((g) => String(g.id) !== String(group.id)));
+      setUnreadMessages((prev) => prev.filter((msg) => String(msg.groupId || msg.normalizedGroupId) !== String(group.id)));
+      if (String(activeGroup?.id || '') === String(group.id)) {
+        setActiveGroup(null);
+        setMessages([]);
+      }
+      setMsg('Group deleted');
+    } catch (err: any) {
+      setMsg(err?.response?.data?.message || 'Failed to delete group');
     }
   };
 
@@ -1286,8 +1513,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     clearUnreadForChat(null, g.id);
 
     try {
-      const res = await api.get(`/groups/${g.id}/messages`);
-      setMessages(res.data.messages || []);
+      await loadGroupMessages(String(g.id));
     } catch (err: any) {
       
     }
@@ -1388,7 +1614,27 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
     try {
       const res = await api.get(`/chats/private/${uid}`);
-      setMessages(res.data.messages || []);
+      const loadedMessages = res.data.messages || [];
+      
+      // Decrypt messages
+      const myId = String(me?._id || me?.id || '');
+      const peerId = String(uid);
+      const decryptedMessages = await Promise.all(loadedMessages.map(async (msg: any) => {
+        try {
+          if (msg?.e2ee?.ciphertext) {
+            const decrypted = await decryptFromPeer(api, peerId, msg.e2ee);
+            return { ...msg, message: decrypted };
+          }
+        } catch (e) {
+          console.error('Failed to decrypt message:', e);
+          if (msg?.e2ee?.ciphertext) {
+            return { ...msg, message: '[Encrypted message]' };
+          }
+        }
+        return msg;
+      }));
+      
+      setMessages(decryptedMessages);
     } catch (err: any) {
       setMsg(err?.response?.data?.message || 'Failed to load messages');
     }
@@ -1552,14 +1798,33 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     }
   };
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     const sock = getSocket();
     if (!text.trim() && !messageMediaUrl) return;
 
     if (mode === 'groups') {
       if (!activeGroup) return;
       const localId = `local:${Date.now()}`;
-      const payload: any = { groupId: activeGroup.id, message: text.trim(), localId };
+      const payload: any = { groupId: activeGroup.id, localId };
+      if (text.trim()) {
+        try {
+          const enc = await encryptForGroup(api, String(activeGroup.id), text.trim());
+          payload.e2ee = enc.e2ee;
+          payload.message = '';
+        } catch (err: any) {
+          console.error('Failed to encrypt group message', err);
+          if (err instanceof E2EEGroupMembersMissingKeysError) {
+            const names = err.members
+              .map((member) => member.username || member.name || member.userId)
+              .filter(Boolean)
+              .join(', ');
+            setMsg(`Encrypted group chat is blocked until all members enable it${names ? `: ${names}` : ''}.`);
+          } else {
+            setMsg(String(err?.message || 'Failed to encrypt group message'));
+          }
+          return;
+        }
+      }
       if (messageMediaUrl) {
         // Send only the URL, not base64 data
         payload.mediaUrl = messageMediaUrl;
@@ -1567,7 +1832,17 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       }
       if (sock) {
         sock.emit('group:message', payload);
-        const messageObj = { ...payload, id: localId, localId, groupId: activeGroup.id, groupName: activeGroup.groupName, senderId: me?.id, sender: { id: me?.id, username: me?.username }, createdAt: new Date().toISOString() };
+        const messageObj = {
+          ...payload,
+          message: text.trim(),
+          id: localId,
+          localId,
+          groupId: activeGroup.id,
+          groupName: activeGroup.groupName,
+          senderId: me?.id,
+          sender: { id: me?.id, username: me?.username },
+          createdAt: new Date().toISOString()
+        };
         setMessages((prev) => [...prev, messageObj]);
         // Do not add sent messages to recent list (only show incoming messages)
         setText('');
@@ -1581,30 +1856,63 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     } else {
       if (!activePrivateUser) return;
       const localId = `local:${Date.now()}`;
-      const payload: any = { toUserId: activePrivateUser._id || activePrivateUser.id, message: text.trim(), localId };
-      if (messageMediaUrl) {
-        // Send only the URL, not base64 data
-        payload.mediaUrl = messageMediaUrl;
-        payload.mediaType = messageMediaType;
-      }
-      if (sock) {
-        sock.emit('private:message', payload);
-        const messageObj = { ...payload, localId, senderId: me?.id, sender: { id: me?.id, username: me?.username }, receiverId: payload.toUserId, receiver: activePrivateUser, createdAt: new Date().toISOString(), status: 'sending' };
-        console.log('Sending private message, adding to recent if recipient inactive:', messageObj);
-        setMessages((prev) => [...prev, messageObj]);
-        // If recipient is not the currently active private chat, add to recent so it appears under Messages
-        const recipientId = normalizeUserId(activePrivateUser) || String(activePrivateUser._id || activePrivateUser.id);
-        const activeId = String(activePrivateUser?._id || activePrivateUser?.id || '');
-        if (!activePrivateUser || recipientId !== String(activePrivateUser._id || activePrivateUser.id)) {
-          addToRecentMessagesData({ ...messageObj, normalizedSenderId: recipientId }, 'private');
+      const myId = String(me?._id || me?.id || '');
+      const recipientId = String(activePrivateUser._id || activePrivateUser.id);
+
+      try {
+        let encryptedMessage = '';
+        let e2ee: any = undefined;
+        if (text.trim()) {
+          if (peerE2EEState === 'ready') {
+            const enc = await encryptForPeer(api, recipientId, text.trim());
+            e2ee = enc.e2ee;
+            encryptedMessage = '';
+          } else {
+            if (peerE2EEState === 'missing') {
+              setMsg('Encrypted chat is required. The other user has not enabled it yet.');
+            } else if (peerE2EEState === 'changed') {
+              setMsg('Encrypted chat is blocked because the other user changed keys.');
+            } else {
+              setMsg('Encrypted chat is not ready yet.');
+            }
+            return;
+          }
         }
-        setText('');
-        setMessageMediaUrl('');
-        setMessageMediaType('');
-        setMessageSelectedFileName('');
-        setMessageMediaFile(null);
-      } else {
-        setMsg('Socket not connected');
+
+        const payload: any = { toUserId: recipientId, message: encryptedMessage, localId, e2ee };
+        if (messageMediaUrl) {
+          // Send only the URL, not base64 data
+          payload.mediaUrl = messageMediaUrl;
+          payload.mediaType = messageMediaType;
+        }
+        if (sock) {
+          sock.emit('private:message', payload);
+          const messageObj = { ...payload, message: text.trim(), localId, senderId: myId, sender: { id: myId, username: me?.username }, receiverId: payload.toUserId, receiver: activePrivateUser, createdAt: new Date().toISOString(), status: 'sending' };
+          console.log('Sending private message, adding to recent if recipient inactive:', messageObj);
+          setMessages((prev) => [...prev, messageObj]);
+          // If recipient is not the currently active private chat, add to recent so it appears under Messages
+          const recipientIdNorm = normalizeUserId(activePrivateUser) || recipientId;
+          const activeId = String(activePrivateUser?._id || activePrivateUser?.id || '');
+          if (!activePrivateUser || recipientIdNorm !== String(activePrivateUser._id || activePrivateUser.id)) {
+            addToRecentMessagesData({ ...messageObj, normalizedSenderId: recipientIdNorm }, 'private');
+          }
+          setText('');
+          setMessageMediaUrl('');
+          setMessageMediaType('');
+          setMessageSelectedFileName('');
+          setMessageMediaFile(null);
+        } else {
+          setMsg('Socket not connected');
+        }
+      } catch (err: any) {
+        console.error('Failed to send private message', err);
+        if (err instanceof E2EEPeerMissingKeyError) {
+          setMsg('Encrypted chat is required. The other user has not enabled it yet.');
+        } else if (err instanceof E2EEPeerKeyChangedError) {
+          setMsg('Encrypted chat is blocked because the other user changed keys.');
+        } else {
+          setMsg(String(err?.message || 'Failed to send message'));
+        }
       }
     }
   };
@@ -2289,6 +2597,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
               onClick={() => {
                 if (isPrivateChatPage) history.pushState(null, '', `/message`);
                 setMode('groups');
+                setShowCreateGroup(true);
               }}
               className={`px-3 py-1 rounded ${mode === 'groups' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}
             >
@@ -2817,7 +3126,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                     <button
                       onClick={() => {
                         if (msg.type === 'group') {
-                          const grp = groups.find((g) => String(g.id) === String(msg.groupId));
+                          const grp = getGroupById(msg.groupId);
                           if (grp) enterGroup(grp);
                         } else {
                           openPrivateChat(msg.sender);
@@ -2870,7 +3179,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                       <button
                         onClick={() => {
                           if (msg.type === 'group') {
-                            const grp = groups.find((g) => String(g.id) === String(msg.groupId));
+                            const grp = getGroupById(msg.groupId);
                             if (grp) enterGroup(grp);
                           } else {
                             openPrivateChat(otherUser);
@@ -2915,7 +3224,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                 <button
                   onClick={() => {
                     if (msg.type === 'group') {
-                      const grp = groups.find((g) => String(g.id) === String(msg.groupId));
+                      const grp = getGroupById(msg.groupId);
                       if (grp) enterGroup(grp);
                     } else {
                       openPrivateChat(msg.sender);
@@ -2931,23 +3240,101 @@ export default function Message({ groupName }: { groupName?: string | null }) {
         </div>
       )}
 
+      {mode === 'groups' && showCreateGroup && (
+        <div className="fixed top-4 left-4 z-50">
+          <div className="bg-white border border-gray-300 rounded-lg shadow-lg p-4 min-w-80">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-gray-800">Create New Group</h3>
+              <button
+                onClick={() => setShowCreateGroup(false)}
+                className="text-gray-500 hover:text-gray-700 text-xl"
+              >
+                ×
+              </button>
+            </div>
+            <div className="flex items-center space-x-2">
+              <input
+                value={newPublicGroupName}
+                onChange={(e) => setNewPublicGroupName(e.target.value)}
+                placeholder="Group name (e.g. Cricket Fans)"
+                className="flex-1 p-2 border rounded text-black"
+                onKeyPress={(e) => e.key === 'Enter' && createAndEnterPublicGroup()}
+              />
+              <button
+                onClick={createAndEnterPublicGroup}
+                disabled={isCreatingPublicGroup}
+                className="px-3 py-2 bg-green-600 text-white rounded disabled:opacity-50 hover:bg-green-700"
+              >
+                {isCreatingPublicGroup ? '...' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {mode === 'groups' && (
         <div>
           {!groupName && (
             <>
+
+              <div className="mb-4 p-3 border rounded bg-black/10">
+                <div className="font-semibold mb-2">Search groups</div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    value={publicGroupSearch}
+                    onChange={(e) => setPublicGroupSearch(e.target.value)}
+                    placeholder="Search by group name"
+                    className="flex-1 p-2 border rounded text-black"
+                  />
+                  <button
+                    onClick={searchPublicGroups}
+                    disabled={isSearchingPublicGroups}
+                    className="px-3 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
+                  >
+                    {isSearchingPublicGroups ? '...' : 'Search'}
+                  </button>
+                </div>
+
+                {publicGroupResults.length > 0 && (
+                  <ul className="mt-3 space-y-2">
+                    {publicGroupResults.map((g) => (
+                      <li key={g.id} className="p-2 border rounded flex justify-between items-center">
+                        <div className="font-medium">{g.groupName}</div>
+                        {g.isMember ? (
+                          <button onClick={() => enterGroup(g)} className="px-3 py-1 bg-blue-600 text-white rounded">Enter</button>
+                        ) : (
+                          <button onClick={() => joinAndEnterPublicGroup(g)} className="px-3 py-1 bg-green-600 text-white rounded">Join</button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
               <h2 className="text-lg font-semibold">Nearby groups</h2>
+
               <ul className="mt-2 space-y-2">
                 {groups.map((g) => (
                   <li key={g.id} className="p-2 border rounded flex justify-between items-center">
                     <div>
-                      <div className="font-medium">{g.groupName} • {g.distanceRange}</div>
-                      <div className="text-sm text-gray-500">{g.distanceMeters}m away</div>
+                      <div className="font-medium">
+                        {g.groupName}
+                        {g.isCreator && <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Created by you</span>}
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        {g.groupType === 'PUBLIC' ? 'Public group' : `${g.distanceMeters}m away`}
+                      </div>
                     </div>
                     <div className="space-x-2">
                       {g.isMember ? (
-                        <button onClick={() => enterGroup(g)} className="px-3 py-1 bg-blue-600 text-white rounded">Enter</button>
+                        <>
+                          <button onClick={() => enterGroup(g)} className="px-3 py-1 bg-blue-600 text-white rounded">Enter</button>
+                          {g.isCreator && (
+                            <button onClick={() => deleteOwnedGroup(g)} className="px-3 py-1 bg-red-600 text-white rounded">Delete</button>
+                          )}
+                        </>
                       ) : (
-                        <button onClick={() => joinAndEnter(g)} className="px-3 py-1 bg-green-600 text-white rounded">Join</button>
+                        <button onClick={() => g.groupType === 'PUBLIC' ? joinAndEnterPublicGroup(g) : joinAndEnter(g)} className="px-3 py-1 bg-green-600 text-white rounded">Join</button>
                       )}
                     </div>
                   </li>
@@ -2958,7 +3345,14 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
           {activeGroup && (
             <div className={groupName ? '' : 'mt-4'}>
-              <h3 className="font-semibold">Group: {activeGroup.groupName}</h3>
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold">Group: {activeGroup.groupName}</h3>
+                {activeGroup.isCreator && (
+                  <button onClick={() => deleteOwnedGroup(activeGroup)} className="px-3 py-1 bg-red-600 text-white rounded">
+                    Delete Group
+                  </button>
+                )}
+              </div>
               <div
                 className="h-96 overflow-auto hide-scrollbar border rounded p-2 mt-2 bg-white text-black"
                 style={currentChatWallpaper || wallpaperUrl ? { backgroundImage: `url(${currentChatWallpaper || wallpaperUrl})`, backgroundSize: 'cover' } : undefined}
@@ -3019,7 +3413,20 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                     🎤
                   </button> */}
                   <div className="relative flex-1">
-                    <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Type a message" className="w-full p-2 border rounded text-black" />
+                    <input
+                      value={text}
+                      onChange={(e) => setText(e.target.value)}
+                      placeholder={
+                        peerE2EEState === 'ready'
+                          ? 'Type a message'
+                          : peerE2EEState === 'missing'
+                            ? 'Peer has not enabled encrypted chat yet'
+                            : peerE2EEState === 'changed'
+                              ? 'Peer key changed. Encrypted chat blocked.'
+                              : 'Preparing encrypted chat…'
+                      }
+                      className="w-full p-2 border rounded text-black disabled:opacity-60"
+                    />
                   </div>
                   <button onClick={openFile} disabled={isUploadingMessageMedia} className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">📎</button>
                   <button onClick={sendMessage} disabled={isUploadingMessageMedia} className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed">{isUploadingMessageMedia ? '⏳' : '➤'}</button>

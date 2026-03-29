@@ -294,9 +294,26 @@ export function initSocket(server: HttpServer) {
     // Handle sending message to group
     socket.on('group:message', async (payload: any) => {
       try {
-        const { groupId, message, mediaUrl, mediaType, localId, isVoice, voiceGender } = payload || {};
-        if (!groupId || (!message && !mediaUrl)) {
+        const { groupId, message, mediaUrl, mediaType, localId, isVoice, voiceGender, e2ee } = payload || {};
+        const trimmedMessage = String(message || '').trim();
+        const hasE2EE = Boolean(
+          e2ee &&
+          typeof e2ee === 'object' &&
+          e2ee.ciphertext &&
+          e2ee.nonce &&
+          Array.isArray(e2ee.recipients) &&
+          e2ee.recipients.length > 0
+        );
+        if (!groupId || (!hasE2EE && !trimmedMessage && !mediaUrl)) {
           socket.emit('group:message:error', { message: 'Missing group ID or message content' });
+          return;
+        }
+        if (trimmedMessage && !hasE2EE) {
+          socket.emit('group:message:error', { message: 'Plaintext group messages are disabled. Encrypted chat is required.' });
+          return;
+        }
+        if (isVoice) {
+          socket.emit('group:message:error', { message: 'Voice messages are not supported in mandatory encrypted chat.' });
           return;
         }
         const group = await Group.findById(groupId).select('members groupName');
@@ -313,11 +330,11 @@ export function initSocket(server: HttpServer) {
         let voiceUrl = null;
 
         // If voice message, convert text to speech
-        if (isVoice && message && voiceGender) {
+        if (isVoice && trimmedMessage && voiceGender) {
           try {
             const { textToSpeech } = await import('../utils/yourVoiceAI.js');
             voiceUrl = await textToSpeech({
-              text: message,
+              text: trimmedMessage,
               gender: voiceGender,
               language: 'en',
             });
@@ -331,7 +348,22 @@ export function initSocket(server: HttpServer) {
         const gm = new GroupMessage({
           groupId,
           senderId: userId,
-          message,
+          message: hasE2EE ? undefined : trimmedMessage,
+          e2ee: hasE2EE
+            ? {
+                v: Number(e2ee.v || 1),
+                alg: String(e2ee.alg || ''),
+                nonce: String(e2ee.nonce),
+                ciphertext: String(e2ee.ciphertext),
+                senderKeyId: e2ee.senderKeyId ? String(e2ee.senderKeyId) : undefined,
+                recipients: (e2ee.recipients || []).map((recipient: any) => ({
+                  userId: recipient.userId,
+                  receiverKeyId: recipient.receiverKeyId ? String(recipient.receiverKeyId) : undefined,
+                  nonce: String(recipient.nonce || ''),
+                  wrappedKey: String(recipient.wrappedKey || ''),
+                })),
+              }
+            : undefined,
           mediaUrl,
           mediaType,
           voiceUrl,
@@ -348,6 +380,7 @@ export function initSocket(server: HttpServer) {
           senderId: userId,
           sender: { id: userId, username: sender?.username, name: sender?.name },
           message: gm.message,
+          e2ee: (gm as any).e2ee || undefined,
           mediaUrl: gm.mediaUrl,
           mediaType: gm.mediaType,
           voiceUrl: gm.voiceUrl,
@@ -369,7 +402,7 @@ export function initSocket(server: HttpServer) {
           const targets = members.filter((m) => m && m !== String(userId)).slice(0, 200);
 
           const preview =
-            voiceUrl ? `[Voice] ${message || ''}` : (message || '[Media message]');
+            (gm as any).e2ee?.ciphertext ? '[Encrypted message]' : (voiceUrl ? `[Voice] ${trimmedMessage || ''}` : (trimmedMessage || '[Media message]'));
           const content = group.groupName ? `[${group.groupName}] ${preview}` : preview;
 
           await Promise.all(
@@ -388,20 +421,34 @@ export function initSocket(server: HttpServer) {
     // Handle private messaging
     socket.on('private:message', async (payload: any) => {
       try {
-        const { toUserId, message, mediaUrl, mediaType, localId, isVoice, voiceGender } = payload || {};
-        if (!toUserId || (!message && !mediaUrl)) {
+        const { toUserId, message, mediaUrl, mediaType, localId, isVoice, voiceGender, e2ee } = payload || {};
+        const trimmedMessage = String(message || '').trim();
+        const hasE2EE = Boolean(e2ee && typeof e2ee === 'object' && e2ee.ciphertext && e2ee.nonce);
+        if (!toUserId || (!hasE2EE && !trimmedMessage && !mediaUrl)) {
           socket.emit('private:message:error', { message: 'Missing recipient or message content' });
+          return;
+        }
+        if (trimmedMessage && !hasE2EE) {
+          socket.emit('private:message:error', { message: 'Plaintext private messages are disabled. Encrypted chat is required.' });
+          return;
+        }
+        if (isVoice) {
+          socket.emit('private:message:error', { message: 'Voice messages are not supported in mandatory encrypted chat.' });
+          return;
+        }
+        if (hasE2EE && isVoice) {
+          socket.emit('private:message:error', { message: 'Voice messages cannot be end-to-end encrypted' });
           return;
         }
 
         let voiceUrl = null;
 
         // If voice message, convert text to speech
-        if (isVoice && message && voiceGender) {
+        if (!hasE2EE && isVoice && trimmedMessage && voiceGender) {
           try {
             const { textToSpeech } = await import('../utils/yourVoiceAI.js');
             voiceUrl = await textToSpeech({
-              text: message,
+              text: trimmedMessage,
               gender: voiceGender,
               language: 'en',
             });
@@ -415,7 +462,17 @@ export function initSocket(server: HttpServer) {
         const pm = new PrivateMessage({
           senderId: userId,
           receiverId: toUserId,
-          message,
+          message: hasE2EE ? undefined : trimmedMessage,
+          e2ee: hasE2EE
+            ? {
+                v: Number(e2ee.v || 1),
+                alg: String(e2ee.alg || ''),
+                nonce: String(e2ee.nonce),
+                ciphertext: String(e2ee.ciphertext),
+                senderKeyId: e2ee.senderKeyId ? String(e2ee.senderKeyId) : undefined,
+                receiverKeyId: e2ee.receiverKeyId ? String(e2ee.receiverKeyId) : undefined,
+              }
+            : undefined,
           mediaUrl,
           mediaType,
           voiceUrl,
@@ -432,6 +489,7 @@ export function initSocket(server: HttpServer) {
           sender: { id: userId, username: sender?.username, name: sender?.name },
           receiverId: toUserId,
           message: pm.message,
+          e2ee: (pm as any).e2ee || undefined,
           mediaUrl: pm.mediaUrl,
           mediaType: pm.mediaType,
           voiceUrl: pm.voiceUrl,
@@ -447,7 +505,7 @@ export function initSocket(server: HttpServer) {
           toUserId,
           userId,
           'message',
-          voiceUrl ? `[Voice message] ${message}` : (message || '[Media message]'),
+          hasE2EE ? '[Encrypted message]' : (voiceUrl ? '[Voice message]' : (message ? 'New message' : '[Media message]')),
           undefined,
           undefined,
           String(pm._id)

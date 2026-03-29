@@ -8,12 +8,25 @@ import { getBlockedUserIdsForViewer, isEitherUserBlocked } from '../utils/blocki
 
 export const sendPrivateMessage = async (req: AuthRequest, res: Response) => {
   try {
-    const { toUserId, message, mediaUrl, mediaType, isVoice, voiceGender, localId } = req.body;
+    const { toUserId, message, mediaUrl, mediaType, isVoice, voiceGender, localId, e2ee } = req.body;
     const senderId = req.user._id;
+    const trimmedMessage = String(message || '').trim();
     
     console.log('Sending message:', { toUserId, message, isVoice, voiceGender });
     
-    if (!toUserId || (!message && !mediaUrl)) return res.status(400).json({ message: 'Missing fields' });
+    const hasE2EE = Boolean(e2ee && typeof e2ee === 'object' && e2ee.ciphertext && e2ee.nonce);
+    if (!toUserId || (!hasE2EE && !trimmedMessage && !mediaUrl)) {
+      return res.status(400).json({ message: 'Missing fields' });
+    }
+    if (trimmedMessage && !hasE2EE) {
+      return res.status(400).json({ message: 'Plaintext private messages are disabled. Encrypted chat is required.' });
+    }
+    if (isVoice) {
+      return res.status(400).json({ message: 'Voice messages are not supported in mandatory encrypted chat.' });
+    }
+    if (hasE2EE && isVoice) {
+      return res.status(400).json({ message: 'Voice messages cannot be end-to-end encrypted' });
+    }
 
     if (await isEitherUserBlocked(String(senderId), String(toUserId))) {
       return res.status(403).json({ message: 'You cannot message this user' });
@@ -22,7 +35,7 @@ export const sendPrivateMessage = async (req: AuthRequest, res: Response) => {
     let voiceUrl = null;
 
     // If voice message, convert text to speech
-    if (isVoice && message && voiceGender) {
+    if (!hasE2EE && isVoice && trimmedMessage && voiceGender) {
       try {
         const result = await textToSpeech({
           text: message,
@@ -41,7 +54,17 @@ export const sendPrivateMessage = async (req: AuthRequest, res: Response) => {
     const pm = new PrivateMessage({ 
       senderId, 
       receiverId: toUserId, 
-      message, 
+      message: hasE2EE ? undefined : trimmedMessage,
+      e2ee: hasE2EE
+        ? {
+            v: Number(e2ee.v || 1),
+            alg: String(e2ee.alg || ''),
+            nonce: String(e2ee.nonce),
+            ciphertext: String(e2ee.ciphertext),
+            senderKeyId: e2ee.senderKeyId ? String(e2ee.senderKeyId) : undefined,
+            receiverKeyId: e2ee.receiverKeyId ? String(e2ee.receiverKeyId) : undefined,
+          }
+        : undefined,
       mediaUrl, 
       mediaType,
       voiceUrl,
@@ -62,6 +85,7 @@ export const sendPrivateMessage = async (req: AuthRequest, res: Response) => {
       sender: { id: senderId, username: sender?.username, name: sender?.name },
       receiverId: toUserId,
       message: pm.message,
+      e2ee: (pm as any).e2ee || undefined,
       mediaUrl: pm.mediaUrl,
       mediaType: pm.mediaType,
       voiceUrl: pm.voiceUrl,
@@ -77,7 +101,7 @@ export const sendPrivateMessage = async (req: AuthRequest, res: Response) => {
       toUserId,
       senderId,
       'message',
-      voiceUrl ? `[Voice message] ${message}` : (message || '[Media message]'),
+      hasE2EE ? '[Encrypted message]' : (voiceUrl ? '[Voice message]' : (message ? 'New message' : '[Media message]')),
       undefined,
       undefined,
       String(pm._id)
@@ -135,6 +159,7 @@ export const getPrivateMessages = async (req: AuthRequest, res: Response) => {
       receiverId: m.receiverId?._id || m.receiverId,
       receiver: m.receiverId ? { id: m.receiverId._id, username: m.receiverId.username, name: m.receiverId.name, profilePicture: m.receiverId.profilePicture } : undefined,
       message: m.message,
+      e2ee: m.e2ee || undefined,
       voiceUrl: m.voiceUrl,
       voiceGender: m.voiceGender,
       mediaUrl: m.mediaUrl,
@@ -289,7 +314,9 @@ export const getConversationList = async (req: AuthRequest, res: Response) => {
         return {
           userId: conv._id,
           user: otherUser,
-          lastMessage: conv.lastMessage.message || (conv.lastMessage.voiceUrl ? '[Voice]' : '[Media]'),
+          lastMessage: conv.lastMessage?.e2ee?.ciphertext
+            ? '[Encrypted]'
+            : (conv.lastMessage.message || (conv.lastMessage.voiceUrl ? '[Voice]' : '[Media]')),
           lastMessageTime: conv.lastMessageTime,
           messageId: conv.lastMessage._id,
         };

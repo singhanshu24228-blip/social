@@ -42,6 +42,9 @@ export interface IUser extends Document {
   following: mongoose.Types.ObjectId[];
   followers: mongoose.Types.ObjectId[];
   blockedUsers?: mongoose.Types.ObjectId[];
+  e2eePublicKey?: string;
+  e2eeKeyId?: string;
+  e2eeUpdatedAt?: Date;
   comparePassword(candidate: string): Promise<boolean>;
 }
 
@@ -77,6 +80,9 @@ if (useInMemory) {
     following: string[];
     followers: string[];
     blockedUsers: string[];
+    e2eePublicKey?: string;
+    e2eeKeyId?: string;
+    e2eeUpdatedAt?: Date;
   };
 
   const users = new Map<string, UserRecord>();
@@ -105,6 +111,9 @@ if (useInMemory) {
     following: string[];
     followers: string[];
     blockedUsers: string[];
+    e2eePublicKey?: string;
+    e2eeKeyId?: string;
+    e2eeUpdatedAt?: Date;
 
     constructor(data: any) {
       this._id = data?._id || new mongoose.Types.ObjectId().toHexString();
@@ -130,6 +139,9 @@ if (useInMemory) {
       this.following = data.following || [];
       this.followers = data.followers || [];
       this.blockedUsers = data.blockedUsers || [];
+      this.e2eePublicKey = data.e2eePublicKey;
+      this.e2eeKeyId = data.e2eeKeyId;
+      this.e2eeUpdatedAt = data.e2eeUpdatedAt;
     }
 
     static __resetForTests() {
@@ -150,7 +162,60 @@ if (useInMemory) {
       const u = users.get(String(id));
       if (!u) return null;
       const doc = new InMemoryUser(u);
-      return Promise.resolve(doc);
+      const query: any = {
+        select() {
+          return query;
+        },
+        lean() {
+          return Promise.resolve({ ...u });
+        },
+        then(resolve: any, reject: any) {
+          return Promise.resolve(doc).then(resolve, reject);
+        },
+        catch(reject: any) {
+          return Promise.resolve(doc).catch(reject);
+        },
+      };
+      return query;
+    }
+
+    static find(query: any = {}) {
+      const results = Array.from(users.values()).filter((u) => {
+        if (query?._id?.$in) {
+          const ids = query._id.$in.map((id: any) => String(id));
+          if (!ids.includes(String(u._id))) return false;
+        } else if (query?._id && String(u._id) !== String(query._id)) {
+          return false;
+        }
+
+        if (query?.blockedUsers) {
+          if (!(u.blockedUsers || []).some((id) => String(id) === String(query.blockedUsers))) return false;
+        }
+
+        return true;
+      });
+
+      const queryObj: any = {
+        select() {
+          return queryObj;
+        },
+        lean() {
+          return Promise.resolve(results.map((u) => ({ ...u })));
+        },
+        then(resolve: any, reject: any) {
+          return Promise.resolve(results.map((u) => new InMemoryUser(u))).then(resolve, reject);
+        },
+        catch(reject: any) {
+          return Promise.resolve(results.map((u) => new InMemoryUser(u))).catch(reject);
+        },
+      };
+
+      return queryObj;
+    }
+
+    static async exists(query: any) {
+      const rows = await this.find(query).lean();
+      return rows.length > 0 ? { _id: rows[0]._id } : null;
     }
 
     static async findByIdAndUpdate(id: string, update: any) {
@@ -229,6 +294,9 @@ if (useInMemory) {
         following: this.following,
         followers: this.followers,
         blockedUsers: this.blockedUsers,
+        e2eePublicKey: this.e2eePublicKey,
+        e2eeKeyId: this.e2eeKeyId,
+        e2eeUpdatedAt: this.e2eeUpdatedAt,
       };
       users.set(this._id, rec);
       this.password = hashed;
@@ -289,6 +357,10 @@ if (useInMemory) {
     followers: [{ type: Schema.Types.ObjectId, ref: 'User' }],
     blockedUsers: [{ type: Schema.Types.ObjectId, ref: 'User', default: [] }],
     isAdmin: { type: Boolean, default: false },
+    // E2EE identity public key (base64-encoded 32 bytes) + stable key id (server-computed)
+    e2eePublicKey: { type: String },
+    e2eeKeyId: { type: String },
+    e2eeUpdatedAt: { type: Date },
   },
   { timestamps: true }
 );

@@ -1,7 +1,3 @@
-/**
- * Image Cache Utilities for Mobile Optimization
- * Handles image validation, caching, and recovery from corrupted images
- */
 
 export interface ImageCacheOptions {
   cacheName?: string;

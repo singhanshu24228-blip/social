@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
+import crypto from 'crypto';
 import User from '../models/User.js';
 import Follower from '../models/Follower.js';
 import { AuthRequest } from '../middleware/auth.js';
@@ -22,43 +23,39 @@ export const updateLocation = async (req: AuthRequest, res: Response) => {
     user.location = { type: 'Point', coordinates: coords } as any;
     await user.save();
     try {
-  const { ensureGroupsForLocation } = await import('./groupController.js');
-  await ensureGroupsForLocation(coords, user._id.toString());
-} catch (err) {
-  console.warn('Group creation failed', err);
-}
+      const { ioInstance } = await import('../socket/index.js');
+      const Group = (await import('../models/Group.js')).default;
 
-try {
-  const { ioInstance } = await import('../socket/index.js');
-  const Group = (await import('../models/Group.js')).default;
+      const groups = await Group.find({ members: userId }).lean();
 
-  const groups = await Group.find({ members: userId }).lean();
+      const haversine = ([lng1, lat1]: [number, number], [lng2, lat2]: [number, number]) => {
+        const R = 6371e3;
+        const toRad = (v: number) => (v * Math.PI) / 180;
+        const dLat = toRad(lat2 - lat1);
+        const dLon = toRad(lng2 - lng1);
+        const a =
+          Math.sin(dLat / 2) ** 2 +
+          Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+          Math.sin(dLon / 2) ** 2;
+        return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      };
 
-  const haversine = ([lng1, lat1]: [number, number], [lng2, lat2]: [number, number]) => {
-    const R = 6371e3;
-    const toRad = (v: number) => (v * Math.PI) / 180;
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lng2 - lng1);
-    const a =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-      Math.sin(dLon / 2) ** 2;
-    return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  };
+      for (const g of groups) {
+        if (String((g as any).groupType || 'LOCAL') !== 'LOCAL') continue;
+        if (!(g as any).location?.coordinates || (g as any).location.coordinates.length !== 2) continue;
 
-  for (const g of groups) {
-    const distance = haversine(coords, g.location.coordinates);
-    const allowed = g.distanceRange === '1KM' ? distance <= 1000 : distance <= 2000;
+        const distance = haversine(coords, (g as any).location.coordinates);
+        const allowed = g.distanceRange === '1KM' ? distance <= 1000 : distance <= 2000;
 
-    if (!allowed) {
-      await Group.findByIdAndUpdate(g._id, { $pull: { members: user._id } });
-      ioInstance?.to(`group:${g._id}`).emit('group:member:left', { groupId: g._id, userId: user._id });
-      ioInstance?.to(`user:${user._id}`).emit('group:left', { groupId: g._id });
+        if (!allowed) {
+          await Group.findByIdAndUpdate(g._id, { $pull: { members: user._id } });
+          ioInstance?.to(`group:${g._id}`).emit('group:member:left', { groupId: g._id, userId: user._id });
+          ioInstance?.to(`user:${user._id}`).emit('group:left', { groupId: g._id });
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to adjust group membership after location update', err);
     }
-  }
-} catch (err) {
-  console.warn('Failed to adjust group membership after location update', err);
-}
 
 
     res.json({ ok: true, location: user.location });
@@ -218,6 +215,67 @@ export const getUserProfile = async (req: AuthRequest, res: Response) => {
     res.json({ user });
   } catch (err) {
     console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+export const setE2EEPublicKey = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = String(req.user._id);
+    const publicKeyB64 = String(req.body?.publicKey || '').trim();
+    if (!publicKeyB64) return res.status(400).json({ message: 'Missing publicKey' });
+
+    let pubBytes: Buffer;
+    try {
+      pubBytes = Buffer.from(publicKeyB64, 'base64');
+    } catch {
+      return res.status(400).json({ message: 'Invalid publicKey encoding' });
+    }
+
+    // WebCrypto ECDH P-256 raw public key is 65 bytes (0x04 + x(32) + y(32)).
+    // Some legacy clients may send raw x coordinate (32 bytes), so accept both.
+    if (pubBytes.length !== 32 && pubBytes.length !== 65) {
+      return res.status(400).json({ message: 'Invalid publicKey length' });
+    }
+
+    const digest = crypto.createHash('sha256').update(pubBytes).digest();
+    const keyId = digest.subarray(0, 8).toString('base64url');
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    (user as any).e2eePublicKey = publicKeyB64;
+    (user as any).e2eeKeyId = keyId;
+    (user as any).e2eeUpdatedAt = new Date();
+    await user.save();
+
+    res.json({ ok: true, keyId });
+  } catch (err) {
+    console.error('setE2EEPublicKey error', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+export const getE2EEPublicKey = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ message: 'Missing user id' });
+
+    if (await isEitherUserBlocked(String(req.user._id), String(id))) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const user = await User.findById(id).select('_id e2eePublicKey e2eeKeyId e2eeUpdatedAt').lean();
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    res.json({
+      userId: user._id,
+      publicKey: (user as any).e2eePublicKey || null,
+      keyId: (user as any).e2eeKeyId || null,
+      updatedAt: (user as any).e2eeUpdatedAt || null,
+    });
+  } catch (err) {
+    console.error('getE2EEPublicKey error', err);
     res.status(500).json({ message: 'Server error' });
   }
 };

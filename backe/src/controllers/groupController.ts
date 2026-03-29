@@ -3,189 +3,275 @@ import Group from '../models/Group.js';
 import User from '../models/User.js';
 import { AuthRequest } from '../middleware/auth.js';
 
-export async function deriveAreaAndPincode(lat: number, lng: number): Promise<{ areaCode: string; pincode: string }> {
-  try {
-    // First, get area from Nominatim
-    const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&addressdetails=1`;
-    const nomRes = await fetch(nominatimUrl, {
-  headers: {
-    'User-Agent': process.env.NOMINATIM_USER_AGENT || 'contact-local-backend/0.1',
-    'Accept-Language': 'en',
-  },
-});
-
-
-    let area = '';
-    if (nomRes.ok) {
-      const nomJson = await nomRes.json();
-      const addr = nomJson.address || {};
-      area = addr.suburb || addr.city_district || addr.town || addr.city || addr.village || addr.hamlet || addr.county || addr.state || addr.country || '';
-    }
-
-    // Get postcode from GeoNames
-    // const geonamesUrl = `http://api.geonames.org/findNearbyPostalCodesJSON?lat=${lat}&lng=${lng}&username=demo&maxRows=1`;
-    const geonamesUser = process.env.GEONAMES_USERNAME;
-    const geonamesUrl = geonamesUser
-      ? `https://api.geonames.org/findNearbyPostalCodesJSON?lat=${lat}&lng=${lng}&username=${geonamesUser}&maxRows=1`
-      : '';
-
-    const geoRes = geonamesUrl ? await fetch(geonamesUrl) : null;
-
-    let postcode = '';
-    if (geoRes?.ok) {
-      const geoJson = await geoRes.json();
-      const postalCodes = geoJson.postalCodes || [];
-      if (postalCodes.length > 0) {
-        postcode = postalCodes[0].postalCode || '';
-      }
-    }
-
-    if (!postcode) {
-      // fallback pseudo pincode using both lat and lng for better accuracy
-      const p = (Math.abs(Math.floor((lat * 1000 + lng * 1000))) % 900000) + 100000;
-      postcode = String(p).slice(0, 6);
-    } else if (postcode.length > 6) {
-      postcode = postcode.replace(/\s+/g, '').slice(0, 6);
-    }
-
-    const normalizedArea = (area.replace(/[^A-Za-z]/g, '')).toUpperCase().slice(0, 3) || 'LOC';
-    return { areaCode: normalizedArea, pincode: postcode };
-  } catch (err) {
-    console.warn('Geocoding failed', err);
-    // fallback on error
-    const p = (Math.abs(Math.floor(lat * 1000)) % 900000) + 100000;
-    return { areaCode: 'LOC', pincode: String(p).slice(0, 6) };
+const isProd = process.env.NODE_ENV === 'production';
+const internalErrorMessage = (err: unknown, fallback: string) => {
+  if (!isProd && err && typeof err === 'object' && 'message' in err) {
+    const msg = String((err as any).message || '').trim();
+    if (msg) return msg;
   }
-}
-
-export const ensureGroupsForLocation = async (coords: [number, number], _ensureMemberUserId?: string) => {
-  const [lng, lat] = coords;
-  const { areaCode, pincode } = await deriveAreaAndPincode(lat, lng);
-
-  const ranges: Array<{ key: '1KM' | '2KM'; maxDistance: number }> = [
-    { key: '1KM', maxDistance: 1000 },
-    { key: '2KM', maxDistance: 2000 },
-  ];
-
-  const created: any[] = [];
-
-  for (const r of ranges) {
-    const groupName = `${areaCode}-${pincode}-${r.key}`;
-    let group = await Group.findOne({ groupName });
-    if (!group) {
-      group = new Group({
-        groupName,
-        areaCode,
-        pincode,
-        distanceRange: r.key,
-        location: { type: 'Point', coordinates: coords },
-        members: [],
-      });
-      await group.save();
-      created.push(group);
-    }
-
-    // Populate members: add users whose location is within the group's maxDistance
-    try {
-      const usersWithin = await User.aggregate([
-        {
-          $geoNear: {
-            near: { type: 'Point', coordinates: coords },
-            distanceField: 'dist',
-            spherical: true,
-            maxDistance: r.maxDistance,
-          },
-        },
-        { $project: { _id: 1 } },
-      ]);
-
-      const ids = (usersWithin || []).map((u: any) => u._id);
-      if (ids.length > 0) {
-        await Group.findByIdAndUpdate(group._id, { $addToSet: { members: { $each: ids } } });
-      }
-    } catch (err) {
-      console.warn('Failed to populate group members', err);
-    }
-  }
-
-  return created;
+  return fallback;
 };
 
 export const listAvailableGroups = async (req: AuthRequest, res: Response) => {
   try {
-    // IMPORTANT:
-    // Use the authenticated user's persisted location for both "list" and "join" flows.
-    // Previously the list endpoint used query lat/lng, while join validation used User.location,
-    // which could diverge (e.g. location update failed), causing "group shows but join is forbidden".
     const authUserId = req.user?._id;
-    let coords: [number, number] | null = null;
 
-    if (authUserId) {
-      const user = await User.findById(authUserId).select('location').lean();
-      if (user?.location?.coordinates?.length === 2) {
-        coords = user.location.coordinates as unknown as [number, number];
+    if (!authUserId) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+
+    // Return only PUBLIC groups where user is creator or member
+    const groups = await Group.find({
+      groupType: 'PUBLIC',
+      $or: [
+        { createdBy: authUserId },
+        { members: authUserId }
+      ]
+    })
+      .select('_id groupName members createdBy')
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
+
+    // For each group, determine if user is a member (they should be for all returned groups)
+    const memberSet = new Set<string>();
+    for (const g of groups) {
+      if ((g.members || []).some((m: any) => String(m) === String(authUserId))) {
+        memberSet.add(String(g._id));
       }
     }
 
-    // Backward-compatible fallback: allow callers to pass lat/lng only if user has no stored location yet.
-    if (!coords) {
-      const { lat, lng } = req.query;
-      if (!lat || !lng) return res.status(400).json({ message: 'User location required' });
-      coords = [parseFloat(lng as string), parseFloat(lat as string)];
-    }
-
-    // Find groups near the user and return at most one per distanceRange (1KM + 2KM).
-    // This prevents multiple nearby pincodes/areas from producing many groups in the UI.
-    const groups = await Group.aggregate([
-      {
-        $geoNear: {
-          near: { type: 'Point', coordinates: coords },
-          distanceField: 'dist',
-          spherical: true,
-          maxDistance: 2000,
-        },
-      },
-      {
-        $match: {
-          $or: [
-            { distanceRange: '1KM', dist: { $lte: 1000 } },
-            { distanceRange: '2KM', dist: { $lte: 2000 } },
-          ],
-        },
-      },
-      {
-        $project: {
-          members: 0,
-        },
-      },
-      { $sort: { dist: 1 } },
-    ]);
-
-    const byRange = new Map<string, any>();
-    for (const g of groups as any[]) {
-      if (!byRange.has(g.distanceRange)) byRange.set(g.distanceRange, g);
-      if (byRange.size >= 2) break;
-    }
-    const uniqueGroups = Array.from(byRange.values()).sort((a: any, b: any) => a.dist - b.dist);
-
-    // For each group, determine if user is a member
-    const userGroups = await Group.find({ members: authUserId }).select('_id').lean();
-    const memberSet = new Set((userGroups || []).map((g: any) => String(g._id)));
-
-    const resGroups = uniqueGroups.map((g: any) => ({
+    const resGroups = (groups || []).map((g: any) => ({
       id: g._id,
       groupName: g.groupName,
-      areaCode: g.areaCode,
-      pincode: g.pincode,
-      distanceRange: g.distanceRange,
-      distanceMeters: Math.round(g.dist),
+      groupType: 'PUBLIC',
+      distanceRange: 'PUBLIC', // Dummy value for compatibility
+      distanceMeters: 0, // Dummy value for compatibility
       isMember: memberSet.has(String(g._id)),
+      isCreator: String(g.createdBy) === String(authUserId)
     }));
 
     res.json({ groups: resGroups });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: internalErrorMessage(err, 'Server error') });
+  }
+};
+
+const normalizeGroupName = (name: unknown) => String(name || '').trim().replace(/\s+/g, ' ');
+
+export const createPublicGroup = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?._id;
+    const groupName = normalizeGroupName(req.body?.groupName);
+
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+    if (!groupName) return res.status(400).json({ message: 'Group name is required' });
+    if (groupName.length < 3 || groupName.length > 40) {
+      return res.status(400).json({ message: 'Group name must be 3-40 characters' });
+    }
+
+    // Basic allowlist (letters, numbers, space, underscore, dash, dot)
+    if (!/^[A-Za-z0-9 _.-]+$/.test(groupName)) {
+      return res.status(400).json({ message: 'Group name contains invalid characters' });
+    }
+
+    const exists = await Group.findOne({ groupName: new RegExp(`^${groupName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') })
+      .select('_id groupName')
+      .lean();
+    if (exists) return res.status(409).json({ message: 'Group name already exists' });
+
+    const group = new Group({
+      groupName,
+      groupType: 'PUBLIC',
+      createdBy: userId,
+      members: [userId],
+      // Defensive: make sure PUBLIC groups never persist a partial geo object.
+      location: undefined,
+    });
+
+    await group.save();
+
+    res.status(201).json({
+      group: {
+        id: group._id,
+        groupName: group.groupName,
+        groupType: group.groupType,
+        isMember: true,
+        isCreator: true,
+      },
+    });
+  } catch (err) {
+    const anyErr: any = err;
+    // Geo-index related insert failure (typically from an old non-partial 2dsphere index in the DB).
+    if (anyErr?.code === 16755) {
+      return res.status(500).json({
+        message:
+          'Group index mismatch on server. Please restart the backend once so it can migrate Group indexes, then retry.',
+      });
+    }
+    // Duplicate key error (race condition vs pre-check)
+    if (anyErr?.code === 11000) {
+      return res.status(409).json({ message: 'Group name already exists' });
+    }
+
+    console.error(err);
+    return res.status(500).json({ message: internalErrorMessage(err, 'Server error') });
+  }
+};
+
+export const searchPublicGroups = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?._id;
+    const q = normalizeGroupName(req.query?.q);
+
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+    if (!q) return res.json({ groups: [] });
+
+    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const rx = new RegExp(escaped, 'i');
+
+    const groups = await Group.find({ groupType: 'PUBLIC', groupName: rx })
+      .select('_id groupName members')
+      .sort({ groupName: 1 })
+      .limit(20)
+      .lean();
+
+    const out = (groups || []).map((g: any) => ({
+      id: g._id,
+      groupName: g.groupName,
+      groupType: 'PUBLIC',
+      isMember: (g.members || []).some((m: any) => String(m) === String(userId)),
+    }));
+
+    res.json({ groups: out });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: internalErrorMessage(err, 'Server error') });
+  }
+};
+
+export const listMyGroups = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?._id;
+    const type = String(req.query?.type || 'all').toLowerCase();
+
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+
+    const filter: any = { members: userId };
+    if (type === 'public') filter.groupType = 'PUBLIC';
+    if (type === 'local') filter.groupType = 'LOCAL';
+
+    const groups = await Group.find(filter).select('_id groupName groupType createdBy').sort({ updatedAt: -1 }).limit(50).lean();
+    res.json({
+      groups: (groups || []).map((g: any) => ({
+        id: g._id,
+        groupName: g.groupName,
+        groupType: g.groupType || 'LOCAL',
+        isMember: true,
+        isCreator: String(g.createdBy || '') === String(userId),
+      })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: internalErrorMessage(err, 'Server error') });
+  }
+};
+
+export const joinPublicGroup = async (req: AuthRequest, res: Response) => {
+  try {
+    const { groupId } = req.params;
+    const userId = req.user?._id;
+
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+
+    const group = await Group.findById(groupId);
+    if (!group) return res.status(404).json({ message: 'Group not found' });
+    if (group.groupType !== 'PUBLIC') return res.status(400).json({ message: 'Not a public group' });
+
+    const already = group.members.find((m: any) => String(m) === String(userId));
+    if (already) return res.json({ ok: true, message: 'Already a member' });
+
+    group.members.push(userId);
+    await group.save();
+
+    res.json({ ok: true, groupId: group._id });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: internalErrorMessage(err, 'Server error') });
+  }
+};
+
+export const getGroupMessages = async (req: AuthRequest, res: Response) => {
+  try {
+    const { groupId } = req.params;
+    const userId = req.user?._id;
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+
+    const group = await Group.findById(groupId).select('members').lean();
+    if (!group) return res.status(404).json({ message: 'Group not found' });
+
+    const isMember = (group.members || []).some((m: any) => String(m) === String(userId));
+    if (!isMember) return res.status(403).json({ message: 'You are not a member of this group' });
+
+    const GroupMessage = (await import('../models/GroupMessage.js')).default;
+    const msgs = await GroupMessage.find({ groupId })
+      .sort({ createdAt: 1 })
+      .allowDiskUse(true)
+      .populate('senderId', 'username name')
+      .lean();
+
+    // Normalize sender field
+    const out = msgs.map((m: any) => ({
+      id: m._id,
+      groupId: m.groupId,
+      senderId: m.senderId?._id || m.senderId,
+      sender: m.senderId ? { id: m.senderId._id, username: m.senderId.username, name: m.senderId.name } : undefined,
+      message: m.message,
+      e2ee: m.e2ee || undefined,
+      mediaUrl: m.mediaUrl,
+      mediaType: m.mediaType,
+      createdAt: m.createdAt,
+      status: m.status,
+    }));
+
+    res.json({ messages: out });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: internalErrorMessage(err, 'Server error') });
+  }
+};
+
+export const getGroupE2EEKeys = async (req: AuthRequest, res: Response) => {
+  try {
+    const { groupId } = req.params;
+    const userId = req.user?._id;
+
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+
+    const group = await Group.findById(groupId).select('members').lean();
+    if (!group) return res.status(404).json({ message: 'Group not found' });
+
+    const isMember = (group.members || []).some((m: any) => String(m) === String(userId));
+    if (!isMember) return res.status(403).json({ message: 'You are not a member of this group' });
+
+    const members = await User.find({ _id: { $in: group.members || [] } })
+      .select('_id username name e2eePublicKey e2eeKeyId e2eeUpdatedAt')
+      .lean();
+
+    res.json({
+      members: (members || []).map((member: any) => ({
+        userId: member._id,
+        username: member.username,
+        name: member.name,
+        publicKey: member.e2eePublicKey || null,
+        keyId: member.e2eeKeyId || null,
+        updatedAt: member.e2eeUpdatedAt || null,
+      })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: internalErrorMessage(err, 'Server error') });
   }
 };
 
@@ -196,6 +282,12 @@ export const joinGroup = async (req: AuthRequest, res: Response) => {
 
     const group = await Group.findById(groupId);
     if (!group) return res.status(404).json({ message: 'Group not found' });
+    if ((group as any).groupType === 'PUBLIC') {
+      return res.status(400).json({ message: 'Use the public join endpoint for this group' });
+    }
+    if (!group.location?.coordinates || group.location.coordinates.length !== 2) {
+      return res.status(400).json({ message: 'Group location missing' });
+    }
 
     // Ensure user is within allowed range to join
     const user = await User.findById(userId);
@@ -210,7 +302,10 @@ export const joinGroup = async (req: AuthRequest, res: Response) => {
       return R * c;
     }
 
-    const distance = haversine(user.location.coordinates as [number, number], group.location.coordinates as [number, number]);
+    const distance = haversine(
+      user.location.coordinates as [number, number],
+      group.location.coordinates as [number, number]
+    );
     const allowed = group.distanceRange === '1KM' ? distance <= 1000 : distance <= 2000;
     if (!allowed) return res.status(403).json({ message: 'You are not within allowed distance to join this group' });
 
@@ -223,33 +318,7 @@ export const joinGroup = async (req: AuthRequest, res: Response) => {
     res.json({ ok: true, groupId: group._id });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-export const getGroupMessages = async (req: AuthRequest, res: Response) => {
-  try {
-    const { groupId } = req.params;
-    const GroupMessage = (await import('../models/GroupMessage.js')).default;
-    const msgs = await GroupMessage.find({ groupId }).sort({ createdAt: 1 }).allowDiskUse(true).populate('senderId', 'username name').lean();
-
-    // Normalize sender field
-    const out = msgs.map((m: any) => ({
-      id: m._id,
-      groupId: m.groupId,
-      senderId: m.senderId?._id || m.senderId,
-      sender: m.senderId ? { id: m.senderId._id, username: m.senderId.username, name: m.senderId.name } : undefined,
-      message: m.message,
-      mediaUrl: m.mediaUrl,
-      mediaType: m.mediaType,
-      createdAt: m.createdAt,
-      status: m.status,
-    }));
-
-    res.json({ messages: out });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: internalErrorMessage(err, 'Server error') });
   }
 };
 
@@ -261,12 +330,39 @@ export const leaveGroup = async (req: AuthRequest, res: Response) => {
     const group = await Group.findById(groupId);
     if (!group) return res.status(404).json({ message: 'Group not found' });
 
-    group.members = group.members.filter((m) => String(m) !== String(userId));
+    group.members = group.members.filter((m: any) => String(m) !== String(userId));
     await group.save();
 
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: internalErrorMessage(err, 'Server error') });
+  }
+};
+
+export const deleteGroup = async (req: AuthRequest, res: Response) => {
+  try {
+    const { groupId } = req.params;
+    const userId = req.user?._id;
+
+    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+
+    const group = await Group.findById(groupId);
+    if (!group) return res.status(404).json({ message: 'Group not found' });
+    if (group.groupType !== 'PUBLIC') {
+      return res.status(400).json({ message: 'Only public groups can be deleted manually' });
+    }
+    if (String(group.createdBy || '') !== String(userId)) {
+      return res.status(403).json({ message: 'Only the group creator can delete this group' });
+    }
+
+    const GroupMessage = (await import('../models/GroupMessage.js')).default;
+    await GroupMessage.deleteMany({ groupId: group._id });
+    await Group.findByIdAndDelete(group._id);
+
+    res.json({ ok: true, groupId: String(group._id) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: internalErrorMessage(err, 'Server error') });
   }
 };

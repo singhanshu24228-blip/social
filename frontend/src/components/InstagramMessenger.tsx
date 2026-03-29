@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api, { resolveMediaUrl } from '../services/api';
 import { connectSocket, getSocket } from '../services/socket';
+import { decryptFromPeer, encryptForPeer, E2EEPeerKeyChangedError, E2EEPeerMissingKeyError, getPeerE2EEPublicKey, registerMyE2EEPublicKey } from '../services/e2ee';
 
 export default function InstagramMessenger({ user }: { user: any }) {
   const [conversations, setConversations] = useState<any[]>([]);
@@ -12,6 +13,7 @@ export default function InstagramMessenger({ user }: { user: any }) {
   const [isVoiceMode, setIsVoiceMode] = useState(false);
   const [voiceGender, setVoiceGender] = useState<'male' | 'female'>('male');
   const [sending, setSending] = useState(false);
+  const [peerE2EEReady, setPeerE2EEReady] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Default infinity logo as SVG data URL
@@ -32,6 +34,12 @@ export default function InstagramMessenger({ user }: { user: any }) {
   }, []);
 
   useEffect(() => {
+    registerMyE2EEPublicKey(api).catch((e: any) => {
+      console.warn('Failed to register E2EE key', e);
+    });
+  }, []);
+
+  useEffect(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
@@ -44,11 +52,27 @@ export default function InstagramMessenger({ user }: { user: any }) {
     const handlePrivateMessage = (payload: any) => {
       const otherUserId = String(payload.senderId || payload.sender?.id || '');
       const meId = String(user?._id || user?.id || '');
-      
+
       if (activeChat && otherUserId === String(activeChat.userId)) {
-        setMessages((prev) => [...prev, payload]);
-        // Mark as seen
-        api.patch(`/chats/private/${payload.id}/status`, { status: 'seen' });
+        (async () => {
+          try {
+            let next = payload;
+            if (payload?.e2ee?.ciphertext) {
+              const decrypted = await decryptFromPeer(api, String(activeChat.userId), payload.e2ee);
+              next = { ...payload, message: decrypted };
+            }
+            setMessages((prev) => [...prev, next]);
+            // Mark as seen
+            api.patch(`/chats/private/${payload.id}/status`, { status: 'seen' });
+          } catch (e) {
+            console.warn('Failed to decrypt message', e);
+            if (payload?.e2ee?.ciphertext) {
+              setMessages((prev) => [...prev, { ...payload, message: '[Encrypted message]' }]);
+            } else {
+              setMessages((prev) => [...prev, payload]);
+            }
+          }
+        })();
       }
     };
 
@@ -106,9 +130,33 @@ export default function InstagramMessenger({ user }: { user: any }) {
   const openChat = async (conversation: any) => {
     setActiveChat(conversation);
     setLoading(true);
+    setPeerE2EEReady(true);
     try {
+      try {
+        const peer = await getPeerE2EEPublicKey(api, String(conversation.userId));
+        if (!peer) setPeerE2EEReady(false);
+      } catch (e) {
+        setPeerE2EEReady(false);
+      }
+
       const res = await api.get(`/chats/private/${conversation.userId}`);
-      setMessages(res.data.messages || []);
+      const loaded = res.data.messages || [];
+      const peerId = String(conversation.userId);
+      const decrypted = await Promise.all(
+        loaded.map(async (m: any) => {
+          try {
+            if (m?.e2ee?.ciphertext) {
+              const plain = await decryptFromPeer(api, peerId, m.e2ee);
+              return { ...m, message: plain };
+            }
+          } catch (e) {
+            console.warn('Failed to decrypt message', e);
+            if (m?.e2ee?.ciphertext) return { ...m, message: '[Encrypted message]' };
+          }
+          return m;
+        })
+      );
+      setMessages(decrypted);
     } catch (err) {
       console.error('Failed to load messages', err);
     }
@@ -123,15 +171,37 @@ export default function InstagramMessenger({ user }: { user: any }) {
     setSending(true);
 
     try {
-      const res = await api.post('/chats/private/send', {
+      const body: any = {
         toUserId,
         message: messageText,
         isVoice: isVoiceMode,
         voiceGender: isVoiceMode ? voiceGender : null,
+      };
+
+      if (!isVoiceMode && peerE2EEReady) {
+        try {
+          const enc = await encryptForPeer(api, String(toUserId), messageText);
+          body.e2ee = enc.e2ee;
+          body.message = '';
+        } catch (e) {
+          setPeerE2EEReady(false);
+          throw e;
+        }
+      } else if (!isVoiceMode && !peerE2EEReady) {
+        throw new Error('Encrypted chat is required for private messages');
+      }
+
+      const res = await api.post('/chats/private/send', {
+        ...body,
       });
-      setMessages((prev) => [...prev, res.data.message]);
+      const serverMsg = res.data.message;
+      const shown = body.e2ee ? { ...serverMsg, message: messageText } : serverMsg;
+      setMessages((prev) => [...prev, shown]);
       setIsVoiceMode(false);
     } catch (err) {
+      if (err instanceof E2EEPeerMissingKeyError || err instanceof E2EEPeerKeyChangedError) {
+        setPeerE2EEReady(false);
+      }
       console.error('Failed to send message', err);
       setText(messageText);
     } finally {
