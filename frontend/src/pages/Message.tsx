@@ -18,6 +18,65 @@ import {
   registerMyE2EEPublicKey,
 } from '../services/e2ee';
 
+function AutoPlayOnScreenVideo({
+  className,
+  onClick,
+  onError,
+  src,
+}: {
+  className?: string;
+  onClick?: React.MouseEventHandler<HTMLVideoElement>;
+  onError?: React.ReactEventHandler<HTMLVideoElement>;
+  src: string;
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const videoElement = videoRef.current;
+    if (!videoElement) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setIsVisible(entry.isIntersecting);
+      },
+      { threshold: 0.7 }
+    );
+
+    observer.observe(videoElement);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const videoElement = videoRef.current;
+    if (!videoElement) return;
+
+    if (isVisible) {
+      videoElement.play().catch(() => {
+        // Browser autoplay can still reject in some cases.
+      });
+      return;
+    }
+
+    videoElement.pause();
+  }, [isVisible]);
+
+  return (
+    <video
+      ref={videoRef}
+      src={src}
+      controls
+      autoPlay
+      muted
+      playsInline
+      preload="metadata"
+      className={className}
+      onClick={onClick}
+      onError={onError}
+    />
+  );
+}
+
 export default function Message({ groupName }: { groupName?: string | null }) {
   const isNightMode = window.location.pathname === '/message/night';
   const isPrivateChatPage = window.location.pathname.startsWith('/message/chat');
@@ -745,11 +804,11 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   const [submittingComment, setSubmittingComment] = useState<Record<string, boolean>>({});
   // songs shipped in frontend/public (update when adding/removing files there)
   const publicSongs = [
-    'Aakh talabani.m4a',
-    'ishqa be (2).m4a',
-    'Ishqa be.m4a',
-    'Runway (2).m4a',
-    'Runway.m4a',
+    // 'Aakh talabani.m4a',
+    // 'ishqa be (2).m4a',
+    // 'Ishqa be.m4a',
+    // 'Runway (2).m4a',
+    // 'Runway.m4a',
   ];
 
   const postComposerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -3391,7 +3450,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                           (m.mediaType === 'image' || String(m.mediaUrl).startsWith('data:image') || String(m.mediaUrl).match(/\.(png|jpe?g|gif|webp)(\?|$)/i)) ? (
                             <img src={resolveMediaUrl(m.mediaUrl)} alt="media" className="max-h-40 mx-auto" />
                           ) : (
-                            <video src={resolveMediaUrl(m.mediaUrl)} controls className="max-h-40 mx-auto" />
+                            <video src={resolveMediaUrl(m.mediaUrl)} controls autoPlay muted className="max-h-40 mx-auto" />
                           )
                         ) : (
                           m.message
@@ -3442,7 +3501,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                       {messageMediaType === 'image' || messageMediaUrl.startsWith('data:image') ? (
                         <img src={resolveMediaUrl(messageMediaUrl)} alt="preview" className="max-h-40" />
                       ) : (
-                        <video src={resolveMediaUrl(messageMediaUrl)} controls className="max-h-40" />
+                        <video src={resolveMediaUrl(messageMediaUrl)} controls autoPlay muted className="max-h-40" />
                       )}
                     </div>
                   )}
@@ -3482,7 +3541,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                   {statusMediaType === 'image' || statusMediaUrl.startsWith('data:image') ? (
                     <img src={statusMediaUrl} alt="preview" className="max-h-40" />
                   ) : (
-                    <video src={statusMediaUrl} controls className="max-h-40" />
+                    <video src={statusMediaUrl} controls autoPlay muted className="max-h-40" />
                   )}
                 </div>
               )}
@@ -3495,8 +3554,8 @@ export default function Message({ groupName }: { groupName?: string | null }) {
           </div>
           )}
 
-          <h3 className="mt-4 font-semibold">Your spacial</h3>
-          {statuses.length === 0 && <div className="text-sm text-gray-500">No special for you</div>}
+          <h3 className="mt-4 font-semibold">Your status</h3>
+          {statuses.length === 0 && <div className="text-sm text-gray-500">No status for you</div>}
           {statuses.filter(s => String(s.userId) === myId).map((s) => {
             const id = s._id || s.id;
             const username = usernameFor(s.userId || s.userId);
@@ -3547,7 +3606,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
               </div>
             );
           })}
-          <h3 className="mt-4 font-semibold">Nearby special</h3>
+          <h3 className="mt-4 font-semibold">Other's status</h3>
           <div className="mt-2 flex space-x-2 overflow-x-auto">
             {statuses.filter(s => String(s.userId) !== String(me?.id)).map((s) => {
               const id = s._id || s.id;
@@ -3658,6 +3717,8 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                         ) : (
                           <video
                             src={resolveMediaUrl(selectedStatus.mediaUrl)}
+                            autoPlay
+                            muted
                             className="w-full h-96 object-cover rounded cursor-zoom-in"
                             onClick={() => setZoomedPostMedia({ src: resolveMediaUrl(selectedStatus.mediaUrl), kind: 'video' })}
                           />
@@ -3801,7 +3862,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                           (m.mediaType === 'image' || String(m.mediaUrl).startsWith('data:image') || String(m.mediaUrl).match(/\.(png|jpe?g|gif|webp)(\?|$)/i)) ? (
                             <img src={resolveMediaUrl(m.mediaUrl)} alt="media" className="max-h-40 mx-auto" />
                           ) : (
-                            <video src={resolveMediaUrl(m.mediaUrl)} controls className="max-h-40 mx-auto" />
+                            <video src={resolveMediaUrl(m.mediaUrl)} controls autoPlay muted className="max-h-40 mx-auto" />
                           )
                         ) : (
                           m.message
@@ -3828,7 +3889,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                     {messageMediaType === 'image' || messageMediaUrl.startsWith('data:image') ? (
                       <img src={resolveMediaUrl(messageMediaUrl)} alt="preview" className="max-h-40" />
                     ) : (
-                      <video src={resolveMediaUrl(messageMediaUrl)} controls className="max-h-40" />
+                      <video src={resolveMediaUrl(messageMediaUrl)} controls autoPlay muted className="max-h-40" />
                     )}
                   </div>
                 )}
@@ -4066,12 +4127,12 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                       ref={postComposerTextareaRef}
                       value={postContent}
                       onChange={(e) => setPostContent(e.target.value)}
-                      placeholder="What's on your mind?"
-                      className="w-full min-h-[110px] rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-gray-900 placeholder-gray-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Write something..."
+                      className="w-full min-h-[70px] rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-gray-900 placeholder-gray-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                       rows={4}
                     />
                     <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
-                      <span>{postContent.trim().length > 0 ? `${postContent.trim().length} characters` : 'Tip: add a photo/video or a song to make it stand out'}</span>
+                      <span>{postContent.trim().length > 0 ? `${postContent.trim().length} characters` : ''}</span>
                       {(postPrivate || postAnonymous || postIsLocked) && (
                         <span className="text-gray-600">
                           {postPrivate ? 'Followers only' : 'Public'}
@@ -4098,7 +4159,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                             postLoading ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-gray-900 text-white hover:bg-gray-800 cursor-pointer'
                           }`}
                         >
-                          📎 Attach media
+                          📎 Attach media from gallery
                         </label>
                         {postImage && (
                           <button
@@ -4128,7 +4189,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                             </div>
                           </div>
                         ) : (
-                          <div className="text-sm text-gray-500">Optional: upload an image or video</div>
+                          <div className="text-sm text-gray-500"> upload an image or video</div>
                         )}
                       </div>
                     </div>
@@ -4136,7 +4197,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                     {postImagePreviewUrl && postImage && (
                       <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
                         {postImage.type.startsWith('video/') ? (
-                          <video src={postImagePreviewUrl} controls className="w-full max-h-72 rounded-lg bg-black" />
+                          <video src={postImagePreviewUrl} controls autoPlay muted className="w-full max-h-72 rounded-lg bg-black" />
                         ) : (
                           <img src={postImagePreviewUrl} alt="Selected media preview" className="w-full max-h-72 object-contain rounded-lg bg-white" />
                         )}
@@ -4515,9 +4576,8 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                       return (
                         <div className={`${isLocked ? 'blur-3xl' : ''}`}>
                           {isVideo ? (
-                            <video
+                            <AutoPlayOnScreenVideo
                               src={src}
-                              controls
                               className={`w-full h-auto max-h-[60vh] object-contain ${!isLocked ? 'cursor-zoom-in' : ''}`}
                               onClick={(e) => {
                                 e.preventDefault();

@@ -567,7 +567,7 @@ const RoomView: React.FC<RoomViewProps> = ({ roomId, onClose, currentUserId }) =
             {mediaFile?.type.startsWith('image/') ? (
               <img src={mediaPreview} alt="Preview" className="max-w-[90vw] max-h-[60vh] object-contain rounded" />
             ) : (
-              <video src={mediaPreview} className="max-w-[90vw] max-h-[60vh] object-contain rounded" controls />
+              <video src={mediaPreview} className="max-w-[90vw] max-h-[60vh] object-contain rounded" controls autoPlay muted />
             )}
             <div className="flex gap-2 mt-2">
               <button
@@ -617,7 +617,7 @@ const RoomView: React.FC<RoomViewProps> = ({ roomId, onClose, currentUserId }) =
                   comment.mediaType?.startsWith('image/') ? (
                     <img src={resolveMediaUrl(comment.mediaUrl)} alt="media" className="inline-block ml-2 max-w-[60vw] max-h-[40vh] object-contain rounded" />
                   ) : (
-                    <video src={resolveMediaUrl(comment.mediaUrl)} className="inline-block ml-2 max-w-[60vw] max-h-[40vh] object-contain rounded" controls />
+                    <video src={resolveMediaUrl(comment.mediaUrl)} className="inline-block ml-2 max-w-[60vw] max-h-[40vh] object-contain rounded" controls autoPlay muted />
                   )
                 ) : (
                   <span className="ml-1">{comment.content}</span>
@@ -667,7 +667,7 @@ const RoomView: React.FC<RoomViewProps> = ({ roomId, onClose, currentUserId }) =
                     {comment.mediaType?.startsWith('image/') ? (
                       <img src={resolveMediaUrl(comment.mediaUrl)} alt="media" className="max-w-[90vw] max-h-[60vh] object-contain rounded mt-1" />
                     ) : (
-                      <video src={resolveMediaUrl(comment.mediaUrl)} className="max-w-[90vw] max-h-[60vh] object-contain rounded mt-1" controls />
+                      <video src={resolveMediaUrl(comment.mediaUrl)} className="max-w-[90vw] max-h-[60vh] object-contain rounded mt-1" controls autoPlay muted />
                     )}
                     {comment.content && <div className="text-gray-200 mt-2">{comment.content}</div>}
                   </div>

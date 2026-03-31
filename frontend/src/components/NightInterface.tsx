@@ -427,7 +427,7 @@ const NightInterface: React.FC<NightInterfaceProps> = ({ onExitNightMode }) => {
                 {selectedFile?.type.startsWith('image/') ? (
                   <img src={previewUrl} alt="Preview" className="w-full rounded-lg max-h-60 object-cover" />
                 ) : (
-                  <video src={previewUrl} className="w-full rounded-lg max-h-60 object-cover" controls />
+                  <video src={previewUrl} className="w-full rounded-lg max-h-60 object-cover" controls autoPlay muted />
                 )}
                 <p className="text-sm text-gray-400 mt-2">📎 {selectedFile?.name}</p>
               </div>

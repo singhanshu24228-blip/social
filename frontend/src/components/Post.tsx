@@ -43,7 +43,9 @@ const Post: React.FC<PostProps> = ({ post, hideInteractions = false, hideAudioCo
   const [imageUrl, setImageUrl] = useState(post.imageUrl ? resolveMediaUrl(post.imageUrl) : '');
   const [isRetrying, setIsRetrying] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const [isVisible, setIsVisible] = useState(false);
+  const [videoVisible, setVideoVisible] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
@@ -84,6 +86,37 @@ const Post: React.FC<PostProps> = ({ post, hideInteractions = false, hideAudioCo
   }, []);
 
   useEffect(() => {
+    const videoObserver = new IntersectionObserver(
+      ([entry]) => {
+        setVideoVisible(entry.isIntersecting);
+      },
+      { threshold: 0.7 } // Play when 70% of the video is visible
+    );
+
+    const videoElement = videoRef.current;
+    if (videoElement) {
+      // Observe the video element's parent container for better visibility detection
+      const container = videoElement.parentElement;
+      if (container) {
+        videoObserver.observe(container);
+      } else {
+        videoObserver.observe(videoElement);
+      }
+    }
+
+    return () => {
+      if (videoElement) {
+        const container = videoElement.parentElement;
+        if (container) {
+          videoObserver.unobserve(container);
+        } else {
+          videoObserver.unobserve(videoElement);
+        }
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (audioRef.current) {
       if (isVisible) {
         audioRef.current.play().catch(() => {
@@ -94,6 +127,40 @@ const Post: React.FC<PostProps> = ({ post, hideInteractions = false, hideAudioCo
       }
     }
   }, [isVisible]);
+
+  useEffect(() => {
+    if (videoRef.current) {
+      if (videoVisible) {
+        videoRef.current.play().catch((error) => {
+          console.log('[Post] Video autoplay failed:', error);
+        });
+      } else {
+        videoRef.current.pause();
+      }
+    }
+  }, [videoVisible]);
+
+  const handleVideoLoad = () => {
+    // Try to autoplay when video is loaded and visible
+    if (videoRef.current && videoVisible) {
+      videoRef.current.play().catch((error) => {
+        console.log('[Post] Video autoplay on load failed:', error);
+      });
+    }
+  };
+
+  // Fallback: try to autoplay on mount if video is visible
+  useEffect(() => {
+    if (videoRef.current && videoVisible) {
+      const timer = setTimeout(() => {
+        videoRef.current?.play().catch((error) => {
+          console.log('[Post] Fallback video autoplay failed:', error);
+        });
+      }, 100); // Small delay to ensure video is ready
+
+      return () => clearTimeout(timer);
+    }
+  }, [videoVisible]);
 
   useEffect(() => {
     setLocalComments(post.comments);
@@ -207,10 +274,15 @@ const Post: React.FC<PostProps> = ({ post, hideInteractions = false, hideAudioCo
             return /\.(mp4|mov|avi|webm|ogv)$/i.test(urlPath);
           })() ? (
             <video
+              ref={videoRef}
               src={post.imageUrl.startsWith('http') ? post.imageUrl : `${getUploadBaseURL()}${post.imageUrl}`}
               controls
+              autoPlay
+              muted
+              preload="metadata"
               className="w-full rounded-lg cursor-pointer"
               onClick={() => setShowMediaModal(true)}
+              onLoadedData={handleVideoLoad}
               onError={() => {
                 console.error('[Post] Video load error:', post._id);
                 setImageError(true);
