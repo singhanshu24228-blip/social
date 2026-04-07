@@ -73,7 +73,7 @@ export default function Admin() {
   const handleLogout = () => {
     localStorage.removeItem('user');
     localStorage.removeItem('access_token');
-    window.location.pathname = '/login';
+    window.location.replace('/');
   };
 
   const handleCreateAdmin = async () => {

@@ -403,7 +403,8 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       await apiDeleteAccount(deleteForm.password, deleteForm.otp);
       // clear session and redirect
       localStorage.removeItem('user');
-      window.location.pathname = '/';
+      localStorage.removeItem('access_token');
+      window.location.replace('/');
     } catch (err: any) {
       setDeleteMsg(err?.response?.data?.message || err?.message || 'Error');
     }
@@ -2753,7 +2754,8 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                         }
                         disconnectSocket();
                         localStorage.removeItem('user');
-                        window.location.pathname = '/';
+                        localStorage.removeItem('access_token');
+                        window.location.replace('/');
                         setHeaderMenuOpen(false);
                       }}
                       className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:bg-black rounded"

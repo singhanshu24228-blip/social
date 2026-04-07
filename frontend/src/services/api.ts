@@ -133,7 +133,8 @@ api.interceptors.response.use(
       } catch (refreshErr) {
         // Refresh failed, clear local user and redirect to login
         localStorage.removeItem('user');
-        window.location.pathname = '/';
+        localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+        window.location.replace('/');
         return Promise.reject(refreshErr);
       }
     }

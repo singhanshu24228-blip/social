@@ -17,7 +17,7 @@ export default function Signup() {
       if (res.data.accessToken) localStorage.setItem('access_token', String(res.data.accessToken));
       setMsg('Signed up and logged in');
       // Navigate to message page
-      window.location.pathname = '/message';
+      window.location.replace('/message');
     } catch (err: any) {
       setMsg(err?.response?.data?.message || err?.message || 'Signup failed');
     } finally {
@@ -63,8 +63,8 @@ export default function Signup() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900 p-4">
-      <div className="w-full max-w-md bg-white/85 backdrop-blur-md rounded-3xl shadow-2xl border border-white/20 p-6">
+    <div className="h-screen overflow-hidden flex items-center justify-center bg-gradient-to-br from-slate-900 via-black to-purple-900 p-4">
+      <div className="w-full max-w-md max-h-[calc(100vh-2rem)] overflow-y-auto bg-white/85 backdrop-blur-md rounded-3xl shadow-2xl border border-white/20 p-6">
         <div className="mb-4 text-center">
           <h2 className="text-3xl font-extrabold text-slate-800">Create your account</h2>
           <p className="text-sm text-slate-500 mt-1">Join Sociovio and connect with friends instantly.</p>
@@ -109,7 +109,7 @@ export default function Signup() {
           disabled={loading}
           className="w-full mt-5 px-4 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-semibold rounded-xl shadow-lg hover:from-indigo-600 hover:to-purple-600 transition-opacity disabled:opacity-50"
         >
-          {loading ? 'Signing up...' : 'Sign up (requires location)'}
+          {loading ? 'Signing up...' : 'Sign up'}
         </button>
 
         {noGeo && (

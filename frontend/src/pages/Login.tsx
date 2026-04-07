@@ -13,7 +13,7 @@ export default function Login() {
       if (res.data.user) localStorage.setItem('user', JSON.stringify(res.data.user));
       if (res.data.accessToken) localStorage.setItem('access_token', String(res.data.accessToken));
       setMsg('Logged in');
-      window.location.pathname = res.data.user?.isAdmin ? '/admin' : '/message';
+      window.location.replace(res.data.user?.isAdmin ? '/admin' : '/message');
     } catch (err: any) {
       const serverMsg = err?.response?.data?.message;
       if (serverMsg) {
@@ -60,8 +60,8 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-indigo-900 to-purple-900 p-4">
-      <div className="w-full max-w-md bg-white/85 backdrop-blur-md rounded-3xl shadow-2xl border border-white/20 p-6">
+    <div className="h-screen overflow-hidden flex items-center justify-center bg-gradient-to-br from-slate-900 via-black to-purple-900 p-4">
+      <div className="w-full max-w-md max-h-[calc(100vh-2rem)] overflow-y-auto bg-white/85 backdrop-blur-md rounded-3xl shadow-2xl border border-white/20 p-4">
         <div className="mb-4 text-center">
           <h2 className="text-3xl font-extrabold text-slate-800">{stage === 'login' ? 'Welcome Back' : stage === 'forgotEmail' ? 'Forgot Password' : 'Reset Password'}</h2>
           <p className="text-sm text-slate-500 mt-1">{stage === 'login' ? 'Sign in to your account' : stage === 'forgotEmail' ? 'Get code to reset your password' : 'Set your new password'}</p>

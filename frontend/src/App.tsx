@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Home from './pages/Home';
@@ -34,6 +34,51 @@ export default function App() {
   const isProfilePage = path.startsWith('/profile/');
   const userId = isProfilePage ? path.split('/profile/')[1] : null;
   const isAdminPage = path === '/admin';
+  const isAuthPage = !isAdminPage && !isProfilePage && !isPaymentPage && !isMessagePage;
+  const isAuthenticated = Boolean(user);
+  const authenticatedHomePath = user?.isAdmin ? '/admin' : '/message';
+  const shouldRedirectToAuthenticatedHome = isAuthPage && isAuthenticated;
+  const shouldRedirectToAuth = !isAuthPage && !isAuthenticated;
+
+  useEffect(() => {
+    if (shouldRedirectToAuthenticatedHome) {
+      window.location.replace(authenticatedHomePath);
+      return;
+    }
+    if (shouldRedirectToAuth) {
+      window.location.replace('/');
+    }
+  }, [authenticatedHomePath, shouldRedirectToAuthenticatedHome, shouldRedirectToAuth]);
+
+  if (shouldRedirectToAuthenticatedHome || shouldRedirectToAuth) {
+    return null;
+  }
+
+  if (isAuthPage) {
+    return (
+      <div className="relative h-screen overflow-hidden">
+        <div className="absolute left-1/2 top-4 z-10 flex w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 gap-2 rounded-2xl bg-white/10 p-2 backdrop-blur-md">
+          <button
+            onClick={() => setIsLogin(false)}
+            className={`flex-1 py-2 px-4 rounded-xl font-semibold transition ${
+              !isLogin ? 'bg-blue-600 text-white' : 'bg-white/70 text-neutral-900'
+            }`}
+          >
+            Sign Up
+          </button>
+          <button
+            onClick={() => setIsLogin(true)}
+            className={`flex-1 py-2 px-4 rounded-xl font-semibold transition ${
+              isLogin ? 'bg-blue-600 text-white' : 'bg-white/70 text-neutral-900'
+            }`}
+          >
+            Login
+          </button>
+        </div>
+        {isLogin ? <Login /> : <Signup />}
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-neutral-900 text-neutral-900 dark:text-neutral-50">
@@ -48,29 +93,9 @@ export default function App() {
         ) : isMessagePage ? (
           <Message groupName={groupName} />
         ) : (
-          <>
-            <div className="flex gap-2 mb-6">
-              <button
-                onClick={() => setIsLogin(false)}
-                className={`flex-1 py-2 px-4 rounded font-semibold transition ${
-                  !isLogin ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-50'
-                }`}
-              >
-                Sign Up
-              </button>
-              <button
-                onClick={() => setIsLogin(true)}
-                className={`flex-1 py-2 px-4 rounded font-semibold transition ${
-                  isLogin ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-50'
-                }`}
-              >
-                Login
-              </button>
-            </div>
-            <div className="transition-all duration-500 ease-in-out opacity-100">
-              {isLogin ? <Login /> : <Signup />}
-            </div>
-          </>
+          <div className="transition-all duration-500 ease-in-out opacity-100">
+            {isLogin ? <Login /> : <Signup />}
+          </div>
         )}
       </div>
     </div>
