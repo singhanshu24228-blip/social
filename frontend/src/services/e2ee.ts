@@ -194,9 +194,14 @@ export class E2EEGroupRecipientMissingError extends Error {
   }
 }
 
+type PeerKeyLookupOptions = {
+  allowKeyRefresh?: boolean;
+};
+
 export async function getPeerE2EEPublicKey(
   api: { get: (url: string) => Promise<any> },
-  userId: string
+  userId: string,
+  options?: PeerKeyLookupOptions
 ): Promise<PeerKey | null> {
   const res = await api.get(`/users/e2ee/${userId}`);
   const publicKey = res?.data?.publicKey;
@@ -205,9 +210,13 @@ export async function getPeerE2EEPublicKey(
 
   const storedKeyId = getStoredString(STORAGE_PEER_KEYID_PREFIX + userId);
   if (storedKeyId && storedKeyId !== keyId) {
-    throw new E2EEPeerKeyChangedError(String(userId), String(storedKeyId), String(keyId));
+    if (!options?.allowKeyRefresh) {
+      throw new E2EEPeerKeyChangedError(String(userId), String(storedKeyId), String(keyId));
+    }
   }
-  if (!storedKeyId) setStoredString(STORAGE_PEER_KEYID_PREFIX + userId, String(keyId));
+  if (!storedKeyId || options?.allowKeyRefresh) {
+    setStoredString(STORAGE_PEER_KEYID_PREFIX + userId, String(keyId));
+  }
 
   return { userId, publicKey: String(publicKey), keyId: String(keyId) };
 }
@@ -279,7 +288,7 @@ export async function decryptFromPeer(
   payload: E2EEPayloadV1
 ): Promise<string> {
   const identity = await getOrCreateIdentity();
-  const peer = await getPeerE2EEPublicKey(api, peerUserId);
+  const peer = await getPeerE2EEPublicKey(api, peerUserId, { allowKeyRefresh: true });
   if (!peer) throw new E2EEPeerMissingKeyError(String(peerUserId));
 
   const myPrivate = await importPrivateKeyFromStorage();
@@ -378,7 +387,7 @@ export async function decryptFromGroup(
   const senderPublicKey =
     String(senderUserId) === String(selfUserId)
       ? identity.publicKey
-      : String((await getPeerE2EEPublicKey(api, senderUserId))?.publicKey || '');
+      : String((await getPeerE2EEPublicKey(api, senderUserId, { allowKeyRefresh: true }))?.publicKey || '');
   if (!senderPublicKey) throw new Error('Missing sender E2EE public key');
 
   const senderPub = await importPublicKeyRaw(senderPublicKey);

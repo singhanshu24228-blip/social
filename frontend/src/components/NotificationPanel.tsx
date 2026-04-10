@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { getSocket } from '../services/socket';
+import { decryptFromPeer } from '../services/e2ee';
 
 export default function NotificationPanel({ onClose }: { onClose: () => void }) {
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -15,15 +16,64 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
 
   useEffect(() => {
     loadNotifications();
-    setupSocketListener();
+    const cleanup = setupSocketListener();
+    return cleanup;
   }, []);
+
+  const upsertNotification = (incoming: any) => {
+    setNotifications((prev) => {
+      const index = prev.findIndex((n) => String(n.messageId || '') === String(incoming.messageId || ''));
+      if (index === -1) return [incoming, ...prev];
+
+      const next = [...prev];
+      next[index] = {
+        ...next[index],
+        ...incoming,
+        fromUser: incoming.fromUser || next[index].fromUser,
+      };
+      return next;
+    });
+  };
 
   const loadNotifications = async () => {
     setLoading(true);
     try {
       const res = await api.get('/notifications?limit=50');
-      setNotifications(res.data.notifications || []);
+      const loaded = res.data.notifications || [];
+      setNotifications(loaded);
       setUnreadCount(res.data.unread || 0);
+
+      const encryptedNotifications = loaded.filter(
+        (notification: any) =>
+          notification?.type === 'message' &&
+          notification?.messageId &&
+          String(notification?.content || '').trim() === '[Encrypted message]'
+      );
+
+      await Promise.all(
+        encryptedNotifications.map(async (notification: any) => {
+          try {
+            const messageRes = await api.get(`/chats/private/message/${notification.messageId}`);
+            const message = messageRes?.data?.message;
+            if (!message) return;
+
+            let content = String(message.message || '').trim();
+            const senderId = String(message.senderId || message.sender?.id || '');
+            if (!content && message?.e2ee?.ciphertext && senderId) {
+              content = await decryptFromPeer(api, senderId, message.e2ee);
+            }
+            if (!content) return;
+
+            upsertNotification({
+              ...notification,
+              content,
+              fromUser: notification.fromUser || message.sender,
+            });
+          } catch (err) {
+            console.warn('Failed to resolve encrypted notification preview', err);
+          }
+        })
+      );
     } catch (err) {
       console.error('Failed to load notifications', err);
     }
@@ -35,12 +85,50 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
     if (!socket) return;
 
     socket.on('notification:new', (notification: any) => {
-      setNotifications((prev) => [notification, ...prev]);
-      setUnreadCount((prev) => prev + 1);
+      setNotifications((prev) => {
+        const index = prev.findIndex((n) => String(n.messageId || '') === String(notification.messageId || ''));
+        if (index === -1) {
+          setUnreadCount((count) => count + 1);
+          return [notification, ...prev];
+        }
+
+        const next = [...prev];
+        next[index] = { ...next[index], ...notification };
+        return next;
+      });
+    });
+
+    socket.on('private:message', async (payload: any) => {
+      const myId = String(me?._id || me?.id || '');
+      const senderId = String(payload?.senderId || payload?.sender?.id || '');
+      if (!payload?.id || !senderId || senderId === myId) return;
+
+      let content = String(payload?.message || '').trim();
+      if (!content && payload?.e2ee?.ciphertext) {
+        try {
+          content = await decryptFromPeer(api, senderId, payload.e2ee);
+        } catch (err) {
+          console.warn('Failed to decrypt notification message preview', err);
+          return;
+        }
+      }
+
+      if (!content) return;
+
+      upsertNotification({
+        _id: `local-message-${payload.id}`,
+        type: 'message',
+        content,
+        messageId: payload.id,
+        fromUser: payload.sender,
+        createdAt: payload.createdAt || new Date().toISOString(),
+        isRead: false,
+      });
     });
 
     return () => {
       socket.off('notification:new');
+      socket.off('private:message');
     };
   };
 
@@ -86,6 +174,22 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
     } catch (err) {
       console.error('Failed to delete all notifications', err);
     }
+  };
+
+  const replyToNotification = async (notification: any) => {
+    const senderId = String(notification?.fromUser?._id || notification?.fromUser?.id || '');
+    if (!senderId) return;
+
+    if (!notification?.isRead && notification?._id && !String(notification._id).startsWith('local-message-')) {
+      try {
+        await api.patch(`/notifications/${notification._id}/read`);
+      } catch (err) {
+        console.warn('Failed to mark notification as read before reply', err);
+      }
+    }
+
+    window.location.href = `/message/chat?uid=${encodeURIComponent(senderId)}`;
+    onClose();
   };
 
   const getNotificationIcon = (type: string) => {
@@ -198,6 +302,14 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
                             </div>
                           </div>
                           <div className="flex gap-2 mt-2">
+                            {notification.type === 'message' && (
+                              <button
+                                onClick={() => replyToNotification(notification)}
+                                className="text-xs text-green-700 hover:text-green-900 font-semibold px-2 py-1 rounded hover:bg-green-100"
+                              >
+                                Reply
+                              </button>
+                            )}
                             <button
                               onClick={() => markAsRead(notification._id)}
                               className="text-xs text-blue-600 hover:text-blue-800 font-semibold px-2 py-1 rounded hover:bg-blue-200"
@@ -252,12 +364,22 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
                           <p className="text-xs text-gray-400 mt-1">
                             {formatTime(notification.createdAt)}
                           </p>
-                          <button
-                            onClick={() => deleteNotification(notification._id)}
-                            className="text-xs text-gray-500 hover:text-red-600 mt-2"
-                          >
-                            Delete
-                          </button>
+                          <div className="flex gap-2 mt-2">
+                            {notification.type === 'message' && (
+                              <button
+                                onClick={() => replyToNotification(notification)}
+                                className="text-xs text-green-700 hover:text-green-900"
+                              >
+                                Reply
+                              </button>
+                            )}
+                            <button
+                              onClick={() => deleteNotification(notification._id)}
+                              className="text-xs text-gray-500 hover:text-red-600"
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>

@@ -176,6 +176,63 @@ export const getPrivateMessages = async (req: AuthRequest, res: Response) => {
   }
 };
 
+export const getPrivateMessageById = async (req: AuthRequest, res: Response) => {
+  try {
+    const { messageId } = req.params;
+    const userId = String(req.user._id);
+    if (!messageId) return res.status(400).json({ message: 'Missing message ID' });
+
+    const msg = await PrivateMessage.findById(messageId)
+      .populate('senderId', 'username name profilePicture')
+      .populate('receiverId', 'username name profilePicture')
+      .lean();
+
+    if (!msg || msg.isDeleted) return res.status(404).json({ message: 'Message not found' });
+
+    const senderId = String((msg as any).senderId?._id || (msg as any).senderId || '');
+    const receiverId = String((msg as any).receiverId?._id || (msg as any).receiverId || '');
+    if (senderId !== userId && receiverId !== userId) {
+      return res.status(403).json({ message: 'Unauthorized' });
+    }
+
+    res.json({
+      message: {
+        id: (msg as any)._id,
+        senderId,
+        sender: (msg as any).senderId
+          ? {
+              id: (msg as any).senderId._id,
+              username: (msg as any).senderId.username,
+              name: (msg as any).senderId.name,
+              profilePicture: (msg as any).senderId.profilePicture,
+            }
+          : undefined,
+        receiverId,
+        receiver: (msg as any).receiverId
+          ? {
+              id: (msg as any).receiverId._id,
+              username: (msg as any).receiverId.username,
+              name: (msg as any).receiverId.name,
+              profilePicture: (msg as any).receiverId.profilePicture,
+            }
+          : undefined,
+        message: (msg as any).message,
+        e2ee: (msg as any).e2ee || undefined,
+        voiceUrl: (msg as any).voiceUrl,
+        voiceGender: (msg as any).voiceGender,
+        mediaUrl: (msg as any).mediaUrl,
+        mediaType: (msg as any).mediaType,
+        status: (msg as any).status,
+        reactions: (msg as any).reactions || [],
+        createdAt: (msg as any).createdAt,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
 export const updatePrivateMessageStatus = async (req: AuthRequest, res: Response) => {
   try {
     const { messageId } = req.params;
