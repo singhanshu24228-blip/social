@@ -103,7 +103,7 @@ export default function Signup() {
             className="w-full p-3 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-sm"
           />
         </div>
-
+        <div  >By sign up you agree to our <a className="text-blue-700 cursor-pointer hover:underline" onClick={() => window.location.replace('/termandcondition')}>Terms & condition</a> and <a className='text-blue-700 cursor-pointer hover:underline' onClick={() => window.location.replace('/PrivacyPolicy')}>Privacy Policy</a></div>
         <button
           onClick={handleSignup}
           disabled={loading}

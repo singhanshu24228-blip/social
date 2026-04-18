@@ -41,6 +41,7 @@ import withdrawalsRoutes from './routes/withdrawals.js';
 import adminRoutes from './routes/admin.js';
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import { perUserRateLimiter } from './middleware/rateLimiter.js';
 import { frontendDistDir, uploadsDir } from './utils/paths.js';
 
 export function createApp() {
@@ -162,6 +163,7 @@ export function createApp() {
   });
 
   app.use('/api/auth', authLimiter, authRoutes);
+  app.use('/api', perUserRateLimiter);
   app.use('/api/users', usersRoutes);
   if (!isProd) {
     app.use('/api/debug', debugRoutes);

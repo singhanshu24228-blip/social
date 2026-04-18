@@ -6,6 +6,8 @@ import Message from './pages/Message';
 import Profile from './pages/Profile';
 import Payment from './pages/Payment';
 import Admin from './pages/Admin';
+import TermsConditions from './pages/TermsConditions';
+import PrivacyPolicy from './pages/PrivacyPolicy';
 
 export default function App() {
   const [isLogin, setIsLogin] = useState(false);
@@ -19,6 +21,8 @@ export default function App() {
     }
   }
   const isPaymentPage = path === '/message/payment';
+  const isTermsPage = path === '/termandcondition';
+  const isPrivacyPage = path === '/PrivacyPolicy';
   const isMessagePage = path.startsWith('/message') && !isPaymentPage;
   const messageSubPath = isMessagePage && path.startsWith('/message/') ? path.split('/message/')[1] : null;
   const groupName =
@@ -34,11 +38,12 @@ export default function App() {
   const isProfilePage = path.startsWith('/profile/');
   const userId = isProfilePage ? path.split('/profile/')[1] : null;
   const isAdminPage = path === '/admin';
-  const isAuthPage = !isAdminPage && !isProfilePage && !isPaymentPage && !isMessagePage;
+  const isAuthPage = !isAdminPage && !isProfilePage && !isPaymentPage && !isMessagePage && !isTermsPage && !isPrivacyPage;
+  const isPublicPage = isTermsPage || isPrivacyPage;
   const isAuthenticated = Boolean(user);
   const authenticatedHomePath = user?.isAdmin ? '/admin' : '/message';
   const shouldRedirectToAuthenticatedHome = isAuthPage && isAuthenticated;
-  const shouldRedirectToAuth = !isAuthPage && !isAuthenticated;
+  const shouldRedirectToAuth = !isAuthPage && !isAuthenticated && !isPublicPage;
 
   useEffect(() => {
     if (shouldRedirectToAuthenticatedHome) {
@@ -90,6 +95,10 @@ export default function App() {
           <Profile userId={userId} />
         ) : isPaymentPage ? (
           <Payment />
+        ) : isTermsPage ? (
+          <TermsConditions />
+        ) : isPrivacyPage ? (
+          <PrivacyPolicy />
         ) : isMessagePage ? (
           <Message groupName={groupName} />
         ) : (

@@ -2815,7 +2815,9 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                       <span>🚫</span>
                       <span>Blocked Users</span>
                     </button>
-                    <a href="mailto:singhsugo24228@gmail.com" className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:text-blue-600 hover:bg-black rounded">Contact us</a>
+                    <a href="mailto:sociovio4@gmail.com" className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:text-blue-600 hover:bg-black rounded">Contact us</a>
+                    <a href="/termandcondition" onClick={() => setHeaderMenuOpen(false)} className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:text-blue-600 hover:bg-black rounded">📋 Terms & Conditions</a>
+                    <a href="/PrivacyPolicy" onClick={() => setHeaderMenuOpen(false)} className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:text-blue-600 hover:bg-black rounded">🔒 Privacy Policy</a>
                   </div>
                 </aside>
               </>
