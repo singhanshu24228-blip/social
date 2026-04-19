@@ -27,10 +27,10 @@ export default function PrivacyPolicy() {
             We may collect information about you in a variety of ways. The information we may collect on our application includes:
           </p>
           <ul className="list-disc list-inside text-neutral-700 dark:text-neutral-300 space-y-2 ml-4">
-            <li><strong>Personal Data:</strong> Name, email address, phone number, username, password, and other registration information</li>
+            <li><strong>Personal Data:</strong> Name, email address, phone number, username, password(encrypted), and other registration information</li>
             <li><strong>Profile Information:</strong> Profile picture, bio, preferences, and settings</li>
             <li><strong>Usage Data:</strong> IP address, browser type, pages visited, time and date of visits, and actions taken within the application</li>
-            <li><strong>Communication Data:</strong> Messages, chats, group conversations, and other communications</li>
+            <li><strong>Communication Data:</strong>  chats, group conversations  are encrypted</li>
             <li><strong>Payment Information:</strong> Payment method, transaction history, and billing information</li>
           </ul>
         </section>

@@ -1,16 +1,17 @@
 import express from 'express';
 import { signup, login, refreshToken, logout, forgotPassword, resetPassword, requestDeleteAccount, deleteAccount, requestUsernameChange, changeUsername } from '../controllers/authController.js';
 import { requireAuth } from '../middleware/auth.js';
+import { authActionLimiter } from '../middleware/rateLimiter.js';
 
 const router = express.Router();
 
-router.post('/signup', signup);
-router.post('/login', login);
+router.post('/signup', authActionLimiter, signup);
+router.post('/login', authActionLimiter, login);
 router.post('/refresh', refreshToken);
 router.post('/logout', logout);
 // password reset flow
-router.post('/forgot-password', forgotPassword);
-router.post('/reset-password', resetPassword);
+router.post('/forgot-password', authActionLimiter, forgotPassword);
+router.post('/reset-password', authActionLimiter, resetPassword);
 
 // account deletion flow (user must be logged in)
 router.post('/request-delete', requireAuth, requestDeleteAccount);

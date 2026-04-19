@@ -164,6 +164,48 @@ describe('auth smoke', () => {
     await handle.close();
   });
 
+  test('signup is not rate-limited by refresh traffic', async () => {
+    const previousLimit = process.env.AUTH_RATE_LIMIT_MAX;
+    process.env.AUTH_RATE_LIMIT_MAX = '2';
+    jest.resetModules();
+
+    await resetInMemoryStores();
+
+    const { createApp } = await import('../index.js');
+    const { app } = createApp();
+    const server = http.createServer(app);
+    const handle = await listen(server);
+
+    try {
+      for (let i = 0; i < 5; i++) {
+        const refreshRes = await fetch(`${handle.baseUrl}/api/auth/refresh`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+        });
+
+        expect([401, 403]).toContain(refreshRes.status);
+      }
+
+      const signupRes = await fetch(`${handle.baseUrl}/api/auth/signup`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'refreshsafe',
+          name: 'Refresh Safe',
+          email: 'refreshsafe@example.com',
+          password: 'pw',
+          location: { type: 'Point', coordinates: [0, 0] },
+        }),
+      });
+
+      expect(signupRes.status).toBe(201);
+    } finally {
+      process.env.AUTH_RATE_LIMIT_MAX = previousLimit || '1000';
+      await handle.close();
+      jest.resetModules();
+    }
+  });
+
   test('request and delete account using password + OTP', async () => {
     const crypto = await import('crypto');
     const { default: User } = await import('../models/User.js');

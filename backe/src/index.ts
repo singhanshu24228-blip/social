@@ -40,7 +40,6 @@ import reportsRoutes from './routes/reports.js';
 import withdrawalsRoutes from './routes/withdrawals.js';
 import adminRoutes from './routes/admin.js';
 import helmet from "helmet";
-import rateLimit from "express-rate-limit";
 import { perUserRateLimiter } from './middleware/rateLimiter.js';
 import { frontendDistDir, uploadsDir } from './utils/paths.js';
 
@@ -155,14 +154,7 @@ export function createApp() {
     console.warn(`[frontend] Missing ${frontendIndexPath}; frontend routes will 404.`);
   }
 
-  const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: Number(process.env.AUTH_RATE_LIMIT_MAX) || 60,
-    standardHeaders: true,
-    legacyHeaders: false,
-  });
-
-  app.use('/api/auth', authLimiter, authRoutes);
+  app.use('/api/auth', authRoutes);
   app.use('/api', perUserRateLimiter);
   app.use('/api/users', usersRoutes);
   if (!isProd) {

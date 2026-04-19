@@ -1,0 +1,49 @@
+
+> contact-local-backend@0.1.0 test
+> jest --runInBand --passWithNoTests -c jest.config.cjs --runTestsByPath src/__tests__/auth.smoke.test.ts
+
+  console.log
+    [auth] generated OTP for dave@example.com: 351124
+
+      at forgotPassword (src/controllers/authController.ts:237:17)
+
+  console.log
+    [email] OTP for dave@example.com: 351124
+
+      at sendPasswordResetEmail (src/utils/email.ts:66:13)
+
+  console.log
+    [auth] generated delete OTP for deleter@example.com: 125248
+
+      at requestDeleteAccount (src/controllers/authController.ts:301:15)
+
+  console.log
+    [email] OTP for deleter@example.com: 125248
+
+      at sendPasswordResetEmail (src/utils/email.ts:66:13)
+
+  console.log
+    [auth] generated username change OTP for orig@example.com: 467725
+
+      at requestUsernameChange (src/controllers/authController.ts:343:15)
+
+  console.log
+    [email] OTP for orig@example.com: 467725
+
+      at sendPasswordResetEmail (src/utils/email.ts:66:13)
+
+PASS src/__tests__/auth.smoke.test.ts (7.076 s)
+  auth smoke
+    √ signup sets auth cookies (3946 ms)
+    √ login returns 200 and sets cookies (15 ms)
+    √ lockout triggers after 5 wrong passwords (28 ms)
+    √ forgot/reset password flow (38 ms)
+    √ signup is not rate-limited by refresh traffic (280 ms)
+    √ request and delete account using password + OTP (397 ms)
+    √ request and perform username change using password + OTP (16 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       7 passed, 7 total
+Snapshots:   0 total
+Time:        7.42 s, estimated 64 s
+Ran all test suites within paths "src/__tests__/auth.smoke.test.ts".
