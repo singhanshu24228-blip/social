@@ -318,7 +318,17 @@ const NightInterface: React.FC<NightInterfaceProps> = ({ onExitNightMode }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 via-purple-900 to-black text-white overflow-hidden">
+    <div style={{ minHeight: '100vh', background: 'linear-gradient(160deg,#0d0d1a 0%,#1a0a2e 40%,#0d0d1a 100%)', color: 'white', overflow: 'hidden', fontFamily: 'Inter,system-ui,sans-serif' }}>
+      {/* Starfield */}
+      <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0 }}>
+        {Array.from({length: 60}).map((_,i) => (
+          <div key={i} style={{ position:'absolute', left:`${Math.random()*100}%`, top:`${Math.random()*100}%`, width:`${Math.random()*2+1}px`, height:`${Math.random()*2+1}px`, borderRadius:'50%', background:'white', opacity: Math.random()*0.6+0.2, animation:`twinkleNI ${Math.random()*3+2}s ease-in-out infinite alternate` }} />
+        ))}
+      </div>
+      {/* Nebula blobs */}
+      <div style={{ position:'fixed', inset:0, pointerEvents:'none', zIndex:0, background:'radial-gradient(ellipse at 15% 40%,rgba(109,40,217,0.18) 0%,transparent 55%),radial-gradient(ellipse at 85% 70%,rgba(219,39,119,0.12) 0%,transparent 55%)' }} />
+      <style>{`@keyframes twinkleNI{0%{opacity:0.15;transform:scale(0.8)}100%{opacity:0.9;transform:scale(1.3)}}`}</style>
+
       {/* Room View Modal */}
       {selectedRoomId && (
         <RoomView roomId={selectedRoomId} onClose={() => setSelectedRoomId(null)} currentUserId={currentUserId} />
@@ -326,48 +336,29 @@ const NightInterface: React.FC<NightInterfaceProps> = ({ onExitNightMode }) => {
 
       {!selectedRoomId && (
       <>
-      {/* Animated Background */}
-      <div className="fixed inset-0 opacity-30 pointer-events-none">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_50%,rgba(139,69,19,0.3),transparent_50%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_80%,rgba(75,0,130,0.3),transparent_50%)]" />
-      </div>
-
       {/* Main Content */}
-      <div className="relative z-10 max-w-2xl mx-auto p-4">
-        {/* Header with Create Button */}
-        <div className="flex justify-between items-start mb-8">
-          <div className="text-center flex-1 py-8 border-b border-purple-500/30">
-            <div className="text-6xl mb-4 drop-shadow-lg animate-bounce" style={{ animationDuration: '3s' }}>
-              🌙
-            </div>
-            <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 mb-2">
-              Night Mode
-            </h1>
-            <p className="text-purple-300 text-sm">
-              Enter the realm of shadows. What happens here, stays in the night 🖤
-            </p>
+      <div className="relative z-10 max-w-2xl mx-auto p-4" style={{ position:'relative', zIndex:1 }}>
+        {/* Header */}
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'32px' }}>
+          <div style={{ flex:1, textAlign:'center', padding:'36px 16px 28px', borderBottom:'1px solid rgba(139,92,246,0.25)' }}>
+            <div style={{ fontSize:'72px', lineHeight:1, marginBottom:'16px', filter:'drop-shadow(0 0 24px rgba(196,181,253,0.9)) drop-shadow(0 0 48px rgba(139,92,246,0.5))', display:'inline-block', animation:'moonFloat 4s ease-in-out infinite' }}>🌙</div>
+            <h1 style={{ fontSize:'36px', fontWeight:800, letterSpacing:'0.04em', background:'linear-gradient(90deg,#c4b5fd,#f472b6,#818cf8)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', marginBottom:'8px' }}>Night Mode</h1>
+            <p style={{ color:'#a78bfa', fontSize:'13px', opacity:0.85 }}>Enter the realm of shadows. What happens here, stays in the night 🖤</p>
           </div>
           {!showComposer && (
-            <div className="flex items-center gap-2">
+            <div style={{ display:'flex', alignItems:'center', gap:'8px', paddingTop:'36px' }}>
               <button
                 onClick={() => setShowRoomModal(true)}
-                className="ml-2 p-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-full hover:from-purple-500 hover:to-pink-500 transition-all duration-300 shadow-lg hover:shadow-pink-500/50 transform hover:scale-110 text-3xl leading-none w-14 h-14 flex items-center justify-center"
                 title="Create a room"
                 aria-label="Create room"
-              >
-                +
-              </button>
-              {/* <button
-                onClick={() => setShowRoomModal(true)}
-                className="p-2 bg-gray-800/40 text-white rounded-md hover:bg-gray-800/60 transition"
-                title="Create room"
-                aria-label="Create room"
-              >
-                🏠
-              </button> */}
+                style={{ marginLeft:'8px', width:'52px', height:'52px', borderRadius:'50%', border:'none', background:'linear-gradient(135deg,#7c3aed,#db2777)', color:'white', fontSize:'24px', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', boxShadow:'0 0 20px rgba(139,92,246,0.5)', transition:'transform 0.2s' }}
+                onMouseEnter={e=>(e.currentTarget.style.transform='scale(1.12)')}
+                onMouseLeave={e=>(e.currentTarget.style.transform='scale(1)')}
+              >+</button>
             </div>
           )}
         </div>
+        <style>{`@keyframes moonFloat{0%,100%{transform:translateY(0) rotate(-5deg)}50%{transform:translateY(-10px) rotate(5deg)}}`}</style>
 
         {/* Error Display */}
         {error && (
@@ -380,9 +371,11 @@ const NightInterface: React.FC<NightInterfaceProps> = ({ onExitNightMode }) => {
         {!showComposer ? (
           <button
             onClick={() => setShowComposer(true)}
-            className="w-full mb-6 p-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg hover:from-purple-500 hover:to-pink-500 transition-all duration-300 shadow-lg hover:shadow-pink-500/50 transform hover:scale-105"
+            style={{ width:'100%', marginBottom:'24px', padding:'16px', borderRadius:'16px', border:'1px solid rgba(139,92,246,0.35)', background:'linear-gradient(135deg,rgba(109,40,217,0.4),rgba(190,24,93,0.3))', color:'white', fontSize:'16px', fontWeight:700, cursor:'pointer', backdropFilter:'blur(10px)', boxShadow:'0 0 30px rgba(139,92,246,0.2)', transition:'all 0.3s', letterSpacing:'0.02em' }}
+            onMouseEnter={e=>{ e.currentTarget.style.transform='scale(1.02)'; e.currentTarget.style.boxShadow='0 0 40px rgba(139,92,246,0.4)'; }}
+            onMouseLeave={e=>{ e.currentTarget.style.transform='scale(1)'; e.currentTarget.style.boxShadow='0 0 30px rgba(139,92,246,0.2)'; }}
           >
-            <span className="text-lg font-semibold">✍️ Share a Secret</span>
+            ✍️ Share a Secret
           </button>
         ) : (
           <form onSubmit={handleCreatePost} className="mb-6 p-6 bg-gray-800/50 border border-purple-500/30 rounded-lg backdrop-blur-sm">
@@ -569,25 +562,34 @@ const NightInterface: React.FC<NightInterfaceProps> = ({ onExitNightMode }) => {
               return (
                 <div
                   key={post._id}
-                  className="bg-gray-800/30 border border-purple-500/30 rounded-lg overflow-hidden hover:border-purple-400/50 transition-all duration-300 backdrop-blur-sm hover:bg-gray-800/50 hover:shadow-lg hover:shadow-purple-500/10"
+                  style={{ borderRadius:'20px', overflow:'hidden', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(139,92,246,0.25)', backdropFilter:'blur(16px)', boxShadow:'0 4px 24px rgba(0,0,0,0.4)', transition:'all 0.3s' }}
+                  onMouseEnter={e=>{ e.currentTarget.style.border='1px solid rgba(196,181,253,0.45)'; e.currentTarget.style.boxShadow='0 8px 40px rgba(139,92,246,0.2)'; }}
+                  onMouseLeave={e=>{ e.currentTarget.style.border='1px solid rgba(139,92,246,0.25)'; e.currentTarget.style.boxShadow='0 4px 24px rgba(0,0,0,0.4)'; }}
                 >
                   {/* Night Mode Post Wrapper */}
-                  <div className="p-4">
+                  <div style={{ padding:'20px' }}>
                     {/* Post Header */}
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <p className="text-purple-300 font-semibold">
-                          {post.anonymous ? '👤 Anonymous' : post.user?.name}
-                        </p>
-                        <p className="text-gray-500 text-xs">
-                          {new Date(post.createdAt).toLocaleString()}
-                        </p>
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'14px' }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+                        <div style={{ width:'36px', height:'36px', borderRadius:'50%', background:'linear-gradient(135deg,#7c3aed,#db2777)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'16px', flexShrink:0 }}>
+                          {post.anonymous ? '👤' : (post.user?.name?.[0] || '?')}
+                        </div>
+                        <div>
+                          <p style={{ color:'#c4b5fd', fontWeight:600, fontSize:'14px', margin:0 }}>
+                            {post.anonymous ? 'Anonymous' : post.user?.name}
+                          </p>
+                          <p style={{ color:'#4b5563', fontSize:'11px', margin:0 }}>
+                            {new Date(post.createdAt).toLocaleString()}
+                          </p>
+                        </div>
                       </div>
                       {currentUserId === post.user?._id && (
                         <button
                           onClick={() => handleDeletePost(post._id)}
-                          className="p-2 text-red-400 hover:bg-red-900/30 hover:text-red-300 rounded-lg transition-all duration-200"
+                          style={{ padding:'6px', background:'transparent', border:'none', color:'#ef4444', cursor:'pointer', borderRadius:'8px', opacity:0.7, transition:'opacity 0.2s' }}
                           title="Delete post"
+                          onMouseEnter={e=>e.currentTarget.style.opacity='1'}
+                          onMouseLeave={e=>e.currentTarget.style.opacity='0.7'}
                         >
                           🗑️
                         </button>
@@ -609,43 +611,32 @@ const NightInterface: React.FC<NightInterfaceProps> = ({ onExitNightMode }) => {
                     )}
 
                     {/* Reactions */}
-                    <div className="mt-4 flex items-center gap-2 flex-nowrap overflow-x-auto bg-gray-800/50 p-2 rounded">
+                    <div style={{ marginTop:'14px', display:'flex', alignItems:'center', gap:'6px', flexWrap:'nowrap', overflowX:'auto', background:'rgba(0,0,0,0.2)', padding:'8px 12px', borderRadius:'12px', border:'1px solid rgba(139,92,246,0.15)' }}>
                       {[
-                        { emoji: '😍', bg: 'bg-red-100' },
-                        { emoji: '😂', bg: 'bg-yellow-100' },
-                        { emoji: '😢', bg: 'bg-blue-200' },
-                        { emoji: '😠', bg: 'bg-red-300' },
-                      ].map(({ emoji, bg }) => {
+                        { emoji: '😍', color: '#f43f5e' },
+                        { emoji: '😂', color: '#eab308' },
+                        { emoji: '😢', color: '#60a5fa' },
+                        { emoji: '😠', color: '#f97316' },
+                      ].map(({ emoji, color }) => {
                         const userEmoji = post.userReactions?.[currentUserId];
                         const hasReacted = userEmoji === emoji;
                         const count = post.reactions?.[emoji] || 0;
-
                         return (
-                          <div key={emoji} className="flex items-center gap-1 flex-shrink-0">
+                          <div key={emoji} style={{ display:'flex', alignItems:'center', gap:'4px', flexShrink:0 }}>
                             <button
                               onClick={() => handleEmojiReaction(post._id, emoji)}
-                              className={`px-2 py-1 rounded text-lg transition ${
-                                hasReacted ? bg : 'hover:bg-gray-600'
-                              }`}
-                            >
-                              {emoji}
-                            </button>
-                            {count > 0 && (
-                              <span className="text-xs text-gray-300">{count}</span>
-                            )}
+                              style={{ padding:'6px 10px', borderRadius:'20px', border: hasReacted ? `1.5px solid ${color}` : '1.5px solid transparent', background: hasReacted ? `${color}22` : 'transparent', cursor:'pointer', fontSize:'18px', transition:'all 0.2s', transform: hasReacted ? 'scale(1.15)' : 'scale(1)' }}
+                            >{emoji}</button>
+                            {count > 0 && <span style={{ fontSize:'11px', color:'#9ca3af' }}>{count}</span>}
                           </div>
                         );
                       })}
-                      
-                      
                       <button
                         onClick={() => setShowComments(prev => ({ ...prev, [post._id]: !prev[post._id] }))}
-                        className={`ml-2 px-2 py-1 rounded text-lg transition flex items-center gap-1 flex-shrink-0 ${
-                          showComments[post._id] ? 'bg-purple-500 text-white' : 'hover:bg-gray-600 text-gray-300'
-                        }`}
+                        style={{ marginLeft:'auto', padding:'6px 12px', borderRadius:'20px', border:`1.5px solid ${showComments[post._id] ? 'rgba(139,92,246,0.7)' : 'transparent'}`, background: showComments[post._id] ? 'rgba(139,92,246,0.25)' : 'transparent', cursor:'pointer', fontSize:'16px', color: showComments[post._id] ? '#c4b5fd' : '#6b7280', display:'flex', alignItems:'center', gap:'5px', flexShrink:0, transition:'all 0.2s' }}
                         title="Toggle comments"
                       >
-                        💬 <span className="text-xs">{post.comments?.length || 0}</span>
+                        💬 <span style={{ fontSize:'11px' }}>{post.comments?.length || 0}</span>
                       </button>
                     </div>
 
@@ -710,10 +701,12 @@ const NightInterface: React.FC<NightInterfaceProps> = ({ onExitNightMode }) => {
       </div>
 
         {/* Exit Button - Bottom Middle */}
-        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-20">
+        <div style={{ position:'fixed', bottom:'24px', left:'50%', transform:'translateX(-50%)', zIndex:20 }}>
           <button
             onClick={handleExitNightMode}
-            className="px-8 py-3 bg-gray-800 border border-red-500/50 text-red-400 rounded-lg hover:bg-red-900/20 hover:border-red-400 transition-all duration-300 font-semibold shadow-lg text-lg"
+            style={{ padding:'12px 32px', borderRadius:'50px', border:'1px solid rgba(239,68,68,0.4)', background:'rgba(15,10,30,0.8)', color:'#f87171', fontSize:'15px', fontWeight:600, cursor:'pointer', backdropFilter:'blur(12px)', boxShadow:'0 0 24px rgba(239,68,68,0.15)', transition:'all 0.3s', letterSpacing:'0.02em' }}
+            onMouseEnter={e=>{ e.currentTarget.style.background='rgba(127,29,29,0.4)'; e.currentTarget.style.borderColor='rgba(239,68,68,0.8)'; e.currentTarget.style.boxShadow='0 0 32px rgba(239,68,68,0.3)'; }}
+            onMouseLeave={e=>{ e.currentTarget.style.background='rgba(15,10,30,0.8)'; e.currentTarget.style.borderColor='rgba(239,68,68,0.4)'; e.currentTarget.style.boxShadow='0 0 24px rgba(239,68,68,0.15)'; }}
           >
             ☀️ Exit Night Mode
           </button>
@@ -817,35 +810,37 @@ function RoomList({ onOpenRoom }: { onOpenRoom: (roomId: string) => void }) {
   if (loadingRooms) return <div className="text-gray-400">Loading rooms…</div>;
 
   return (
-    <div className="space-y-3">
+    <div style={{ display:'flex', flexDirection:'column', gap:'10px' }}>
+      {rooms.length === 0 && (
+        <div style={{ textAlign:'center', padding:'20px', color:'#6b7280', fontSize:'13px' }}>No rooms yet — create one!</div>
+      )}
       {rooms.map((r) => {
         const isParticipant = currentUser && r.participants && r.participants.map((p:any)=>String(p)).includes(String(currentUser._id || currentUser.id));
         const fee = Number(r?.entryFee || 0);
         return (
-          <div key={r._id} className="p-3 bg-gray-800/20 border border-purple-500/20 rounded-lg flex items-center justify-between">
-            <div className="flex-1">
-              <div className="font-semibold text-purple-300">{r.name}</div>
-              <div className="text-xs text-gray-400 flex items-center gap-2">
+          <div key={r._id} style={{ padding:'14px 16px', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(139,92,246,0.2)', borderRadius:'16px', display:'flex', alignItems:'center', justifyContent:'space-between', backdropFilter:'blur(10px)', transition:'border 0.2s' }}
+            onMouseEnter={e=>e.currentTarget.style.border='1px solid rgba(196,181,253,0.4)'}
+            onMouseLeave={e=>e.currentTarget.style.border='1px solid rgba(139,92,246,0.2)'}
+          >
+            <div style={{ flex:1 }}>
+              <div style={{ fontWeight:600, color:'#c4b5fd', fontSize:'14px', marginBottom:'4px' }}>🏠 {r.name}</div>
+              <div style={{ fontSize:'11px', color:'#6b7280', display:'flex', alignItems:'center', gap:'8px' }}>
                 <span>by {r.creator?.name || r.creator?.username}</span>
-                <span className={`px-2 py-0.5 rounded-full border text-[11px] ${fee > 0 ? 'border-pink-500/40 text-pink-200' : 'border-green-500/40 text-green-200'}`}>
-                  {fee > 0 ? `₹${fee} entry` : 'Free entry'}
+                <span style={{ padding:'2px 8px', borderRadius:'20px', border: fee > 0 ? '1px solid rgba(244,114,182,0.4)' : '1px solid rgba(74,222,128,0.4)', color: fee > 0 ? '#f9a8d4' : '#86efac', fontSize:'11px' }}>
+                  {fee > 0 ? `₹${fee} entry` : 'Free'}
                 </span>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
               {!isParticipant && (
                 <button
                   onClick={() => handleJoinRoom(r)}
                   disabled={processingRoomId===r._id}
-                  className="px-3 py-1 bg-blue-600 rounded-md text-sm hover:bg-blue-500 disabled:opacity-50"
-                >
-                  {processingRoomId===r._id ? '...' : (fee > 0 ? `Join ₹${fee}` : 'Join')}
-                </button>
+                  style={{ padding:'7px 16px', borderRadius:'20px', border:'none', background:'linear-gradient(135deg,#2563eb,#4f46e5)', color:'white', fontSize:'13px', fontWeight:600, cursor:'pointer', opacity: processingRoomId===r._id ? 0.6 : 1, transition:'all 0.2s' }}
+                >{processingRoomId===r._id ? '...' : (fee > 0 ? `Join ₹${fee}` : 'Join')}</button>
               )}
               {isParticipant && (
-                <button onClick={() => onOpenRoom(r._id)} className="px-3 py-1 bg-purple-600 rounded-md text-sm hover:bg-purple-500">
-                  Open
-                </button>
+                <button onClick={() => onOpenRoom(r._id)} style={{ padding:'7px 16px', borderRadius:'20px', border:'none', background:'linear-gradient(135deg,#7c3aed,#6d28d9)', color:'white', fontSize:'13px', fontWeight:600, cursor:'pointer', transition:'all 0.2s' }}>Open</button>
               )}
             </div>
           </div>

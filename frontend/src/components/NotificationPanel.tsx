@@ -24,13 +24,8 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
     setNotifications((prev) => {
       const index = prev.findIndex((n) => String(n.messageId || '') === String(incoming.messageId || ''));
       if (index === -1) return [incoming, ...prev];
-
       const next = [...prev];
-      next[index] = {
-        ...next[index],
-        ...incoming,
-        fromUser: incoming.fromUser || next[index].fromUser,
-      };
+      next[index] = { ...next[index], ...incoming, fromUser: incoming.fromUser || next[index].fromUser };
       return next;
     });
   };
@@ -56,19 +51,13 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
             const messageRes = await api.get(`/chats/private/message/${notification.messageId}`);
             const message = messageRes?.data?.message;
             if (!message) return;
-
             let content = String(message.message || '').trim();
             const senderId = String(message.senderId || message.sender?.id || '');
             if (!content && message?.e2ee?.ciphertext && senderId) {
               content = await decryptFromPeer(api, senderId, message.e2ee);
             }
             if (!content) return;
-
-            upsertNotification({
-              ...notification,
-              content,
-              fromUser: notification.fromUser || message.sender,
-            });
+            upsertNotification({ ...notification, content, fromUser: notification.fromUser || message.sender });
           } catch (err) {
             console.warn('Failed to resolve encrypted notification preview', err);
           }
@@ -87,11 +76,7 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
     socket.on('notification:new', (notification: any) => {
       setNotifications((prev) => {
         const index = prev.findIndex((n) => String(n.messageId || '') === String(notification.messageId || ''));
-        if (index === -1) {
-          setUnreadCount((count) => count + 1);
-          return [notification, ...prev];
-        }
-
+        if (index === -1) { setUnreadCount((count) => count + 1); return [notification, ...prev]; }
         const next = [...prev];
         next[index] = { ...next[index], ...notification };
         return next;
@@ -102,23 +87,15 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
       const myId = String(me?._id || me?.id || '');
       const senderId = String(payload?.senderId || payload?.sender?.id || '');
       if (!payload?.id || !senderId || senderId === myId) return;
-
       let content = String(payload?.message || '').trim();
       if (!content && payload?.e2ee?.ciphertext) {
-        try {
-          content = await decryptFromPeer(api, senderId, payload.e2ee);
-        } catch (err) {
-          console.warn('Failed to decrypt notification message preview', err);
-          return;
-        }
+        try { content = await decryptFromPeer(api, senderId, payload.e2ee); }
+        catch (err) { console.warn('Failed to decrypt notification message preview', err); return; }
       }
-
       if (!content) return;
-
       upsertNotification({
         _id: `local-message-${payload.id}`,
-        type: 'message',
-        content,
+        type: 'message', content,
         messageId: payload.id,
         fromUser: payload.sender,
         createdAt: payload.createdAt || new Date().toISOString(),
@@ -135,15 +112,9 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
   const markAsRead = async (notificationId: string) => {
     try {
       await api.patch(`/notifications/${notificationId}/read`);
-      setNotifications((prev) =>
-        prev.map((n) =>
-          n._id === notificationId ? { ...n, isRead: true } : n
-        )
-      );
+      setNotifications((prev) => prev.map((n) => n._id === notificationId ? { ...n, isRead: true } : n));
       setUnreadCount((prev) => Math.max(0, prev - 1));
-    } catch (err) {
-      console.error('Failed to mark as read', err);
-    }
+    } catch (err) { console.error('Failed to mark as read', err); }
   };
 
   const markAllAsRead = async () => {
@@ -151,18 +122,14 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
       await api.patch('/notifications/read-all');
       setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
       setUnreadCount(0);
-    } catch (err) {
-      console.error('Failed to mark all as read', err);
-    }
+    } catch (err) { console.error('Failed to mark all as read', err); }
   };
 
   const deleteNotification = async (notificationId: string) => {
     try {
       await api.delete(`/notifications/${notificationId}`);
       setNotifications((prev) => prev.filter((n) => n._id !== notificationId));
-    } catch (err) {
-      console.error('Failed to delete notification', err);
-    }
+    } catch (err) { console.error('Failed to delete notification', err); }
   };
 
   const deleteAllNotifications = async () => {
@@ -171,36 +138,23 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
       await api.delete('/notifications/delete-all');
       setNotifications([]);
       setUnreadCount(0);
-    } catch (err) {
-      console.error('Failed to delete all notifications', err);
-    }
+    } catch (err) { console.error('Failed to delete all notifications', err); }
   };
 
   const replyToNotification = async (notification: any) => {
     const senderId = String(notification?.fromUser?._id || notification?.fromUser?.id || '');
     if (!senderId) return;
-
     if (!notification?.isRead && notification?._id && !String(notification._id).startsWith('local-message-')) {
-      try {
-        await api.patch(`/notifications/${notification._id}/read`);
-      } catch (err) {
-        console.warn('Failed to mark notification as read before reply', err);
-      }
+      try { await api.patch(`/notifications/${notification._id}/read`); } catch { }
     }
-
     window.location.href = `/message/chat?uid=${encodeURIComponent(senderId)}`;
     onClose();
   };
 
   const getNotificationIcon = (type: string) => {
     const icons: { [key: string]: string } = {
-      like: '❤️',
-      comment: '💬',
-      follow: '👤',
-      message: '📨',
-      reaction: '😊',
-      mention: '@',
-      post: '📸',
+      like: '♡', comment: '💬', follow: '👤',
+      message: '📨', reaction: '😊', mention: '@', post: '📸',
     };
     return icons[type] || '🔔';
   };
@@ -219,173 +173,93 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
     return texts[notification.type] || 'New notification';
   };
 
-  // Separate unread and recent notifications
   const unreadNotifications = notifications.filter((n) => !n.isRead);
   const recentNotifications = notifications.filter((n) => n.isRead);
 
   return (
-    <div className="w-[92vw] max-w-sm sm:w-80 bg-blue-200 rounded-lg shadow-lg border border-gray-200 max-h-[70vh] sm:max-h-[600px] flex flex-col scrollbar-hide">
+    <div className="w-full h-full bg-gray-950 flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="p-1 border-b border-gray-200 flex justify-between items-center">
-        <h2 className="text-lg font-bold">Notifications</h2>
-        <button
-          onClick={onClose}
-          className="text-white hover:text-gray-300 text-2xl font-bold"
-        >
-          ✕
-        </button>
+      <div className="flex items-center justify-between px-4 pt-12 pb-3 border-b border-gray-800 flex-shrink-0">
+        <div>
+          <h2 className="text-xl font-bold text-white">Notifications</h2>
+          {unreadCount > 0 && <p className="text-xs text-blue-400 mt-0.5">{unreadCount} unread</p>}
+        </div>
+        <div className="flex items-center gap-3">
+          {unreadCount > 0 && (
+            <button onClick={markAllAsRead} className="text-xs text-blue-400 hover:text-blue-300 font-semibold px-3 py-1.5 bg-blue-900/40 rounded-full transition">
+              Mark all read
+            </button>
+          )}
+          <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl font-bold leading-none transition">✕</button>
+        </div>
       </div>
 
-      {/* Toolbar */}
-      {unreadCount > 0 && (
-        <div className="px-4 py-2 bg-blue-50 border-b border-gray-200 flex justify-between items-center">
-          <span className="text-sm text-blue-700 font-semibold">
-            {unreadCount} unread
-          </span>
-          <button
-            onClick={markAllAsRead}
-            className="text-xs text-blue-600 hover:text-blue-800 font-semibold"
-          >
-            Mark all as read
-          </button>
-        </div>
-      )}
-
-      {/* Notifications List */}
+      {/* List */}
       <div className="flex-1 overflow-y-auto">
         {loading ? (
-          <div className="p-8 text-center text-gray-400">
-            <p>Loading...</p>
+          <div className="flex flex-col items-center justify-center h-48 text-gray-500">
+            <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full mb-3" />
+            <p className="text-sm">Loading...</p>
           </div>
         ) : notifications.length === 0 ? (
-          <div className="p-8 text-center text-gray-400">
-            <p className="text-3xl mb-2">🔔</p>
-            <p>No notifications yet</p>
+          <div className="flex flex-col items-center justify-center h-64 text-gray-500">
+            <p className="text-5xl mb-3">🔔</p>
+            <p className="text-sm">No notifications yet</p>
           </div>
         ) : (
-          <div>
-            {/* Unread Notifications */}
+          <div className="divide-y divide-gray-800/60">
             {unreadNotifications.length > 0 && (
-              <div>
-                <div className="px-4 py-2 bg-black-50 border-b border-yellow-200 sticky top-0">
-                  <h3 className="font-semibold text-yellow-900 text-sm">
-                    Unread ({unreadNotifications.length})
-                  </h3>
+              <>
+                <div className="px-4 py-2 bg-gray-900/80 sticky top-0 z-10">
+                  <h3 className="text-xs font-semibold text-yellow-400 uppercase tracking-wider">Unread ({unreadNotifications.length})</h3>
                 </div>
-                <div className="divide-y divide-gray-100">
-                  {unreadNotifications.map((notification) => (
-                    <div
-                      key={notification._id}
-                      className="p-3 bg-blue-50 hover:bg-blue-100 transition"
-                    >
-                      <div className="flex gap-2">
-                        <div className="text-2xl flex-shrink-0">
-                          {getNotificationIcon(notification.type)}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <p className="text-sm font-semibold text-gray-900">
-                                {notification.fromUser?.username || 'User'}
-                              </p>
-                              <p className="text-xs text-gray-700 mt-0.5">
-                                {getNotificationText(notification)}
-                              </p>
-                              {notification.content && (
-                                <p className="text-xs text-black mt-1 truncate">
-                                  "{notification.content}"
-                                </p>
-                              )}
-                              <p className="text-xs text-gray-500 mt-1">
-                                {formatTime(notification.createdAt)}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex gap-2 mt-2">
-                            {notification.type === 'message' && (
-                              <button
-                                onClick={() => replyToNotification(notification)}
-                                className="text-xs text-green-700 hover:text-green-900 font-semibold px-2 py-1 rounded hover:bg-green-100"
-                              >
-                                Reply
-                              </button>
-                            )}
-                            <button
-                              onClick={() => markAsRead(notification._id)}
-                              className="text-xs text-blue-600 hover:text-blue-800 font-semibold px-2 py-1 rounded hover:bg-blue-200"
-                            >
-                              Mark as read
-                            </button>
-                            <button
-                              onClick={() => deleteNotification(notification._id)}
-                              className="text-xs text-gray-600 hover:text-red-600 font-semibold px-2 py-1 rounded hover:bg-gray-200"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Recent Notifications */}
-            {recentNotifications.length > 0 && (
-              <div>
-                <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 sticky top-0">
-                  <h3 className="font-semibold text-gray-800 text-sm">
-                    Recent
-                  </h3>
-                </div>
-                <div className="divide-y divide-gray-100">
-                  {recentNotifications.slice(0, 10).map((notification) => (
-                    <div
-                      key={notification._id}
-                      className="p-3 hover:bg-gray-50 transition"
-                    >
-                      <div className="flex gap-2">
-                        <div className="text-2xl flex-shrink-0">
-                          {getNotificationIcon(notification.type)}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-gray-900">
-                            {notification.fromUser?.username || 'User'}
-                          </p>
-                          <p className="text-xs text-gray-600 mt-0.5">
-                            {getNotificationText(notification)}
-                          </p>
-                          {notification.content && (
-                            <p className="text-xs text-gray-500 mt-1 truncate">
-                              "{notification.content}"
-                            </p>
+                {unreadNotifications.map((n) => (
+                  <div key={n._id} className="px-4 py-3 bg-blue-950/30 hover:bg-blue-900/20 transition">
+                    <div className="flex gap-3">
+                      <div className="w-10 h-10 rounded-full bg-gray-800 flex items-center justify-center text-xl flex-shrink-0">{getNotificationIcon(n.type)}</div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-white">{n.fromUser?.username || 'User'}</p>
+                        <p className="text-xs text-gray-300 mt-0.5">{getNotificationText(n)}</p>
+                        {n.content && <p className="text-xs text-gray-400 mt-1 truncate">"{n.content}"</p>}
+                        <p className="text-xs text-gray-500 mt-1">{formatTime(n.createdAt)}</p>
+                        <div className="flex gap-2 mt-2 flex-wrap">
+                          {n.type === 'message' && (
+                            <button onClick={() => replyToNotification(n)} className="text-xs text-green-400 font-semibold px-2 py-1 rounded-full bg-green-900/30 hover:bg-green-900/50 transition">Reply</button>
                           )}
-                          <p className="text-xs text-gray-400 mt-1">
-                            {formatTime(notification.createdAt)}
-                          </p>
-                          <div className="flex gap-2 mt-2">
-                            {notification.type === 'message' && (
-                              <button
-                                onClick={() => replyToNotification(notification)}
-                                className="text-xs text-green-700 hover:text-green-900"
-                              >
-                                Reply
-                              </button>
-                            )}
-                            <button
-                              onClick={() => deleteNotification(notification._id)}
-                              className="text-xs text-gray-500 hover:text-red-600"
-                            >
-                              Delete
-                            </button>
-                          </div>
+                          <button onClick={() => markAsRead(n._id)} className="text-xs text-blue-400 font-semibold px-2 py-1 rounded-full bg-blue-900/30 hover:bg-blue-900/50 transition">Mark read</button>
+                          <button onClick={() => deleteNotification(n._id)} className="text-xs text-gray-400 hover:text-red-400 px-2 py-1 rounded-full hover:bg-red-900/20 transition">Delete</button>
                         </div>
                       </div>
                     </div>
-                  ))}
+                  </div>
+                ))}
+              </>
+            )}
+            {recentNotifications.length > 0 && (
+              <>
+                <div className="px-4 py-2 bg-gray-900/80 sticky top-0 z-10">
+                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Recent</h3>
                 </div>
-              </div>
+                {recentNotifications.slice(0, 20).map((n) => (
+                  <div key={n._id} className="px-4 py-3 hover:bg-gray-800/40 transition">
+                    <div className="flex gap-3">
+                      <div className="w-10 h-10 rounded-full bg-gray-800 flex items-center justify-center text-xl flex-shrink-0 opacity-70">{getNotificationIcon(n.type)}</div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-200">{n.fromUser?.username || 'User'}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">{getNotificationText(n)}</p>
+                        {n.content && <p className="text-xs text-gray-500 mt-1 truncate">"{n.content}"</p>}
+                        <p className="text-xs text-gray-600 mt-1">{formatTime(n.createdAt)}</p>
+                        <div className="flex gap-2 mt-2 flex-wrap">
+                          {n.type === 'message' && (
+                            <button onClick={() => replyToNotification(n)} className="text-xs text-green-400 px-2 py-1 rounded-full bg-green-900/20 hover:bg-green-900/40 transition">Reply</button>
+                          )}
+                          <button onClick={() => deleteNotification(n._id)} className="text-xs text-gray-500 hover:text-red-400 px-2 py-1 rounded-full hover:bg-red-900/20 transition">Delete</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </>
             )}
           </div>
         )}
@@ -393,11 +267,8 @@ export default function NotificationPanel({ onClose }: { onClose: () => void }) 
 
       {/* Footer */}
       {notifications.length > 0 && (
-        <div className="p-4 border-t border-gray-200">
-          <button
-            onClick={deleteAllNotifications}
-            className="w-full text-xs text-gray-600 hover:text-red-600 font-semibold py-2"
-          >
+        <div className="px-4 py-3 border-t border-gray-800 flex-shrink-0">
+          <button onClick={deleteAllNotifications} className="w-full text-xs text-gray-500 hover:text-red-400 font-semibold py-2 rounded-xl hover:bg-red-900/20 transition">
             Clear all notifications
           </button>
         </div>
@@ -413,7 +284,6 @@ function formatTime(date: string) {
   const minutes = Math.floor(diff / 60000);
   const hours = Math.floor(diff / 3600000);
   const days = Math.floor(diff / 86400000);
-
   if (minutes < 1) return 'now';
   if (minutes < 60) return `${minutes}m ago`;
   if (hours < 24) return `${hours}h ago`;

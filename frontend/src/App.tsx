@@ -88,7 +88,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-neutral-900 text-neutral-900 dark:text-neutral-50">
       <div className={isAdminPage ? 'w-full' : "max-w-md md:max-w-2xl lg:max-w-4xl mx-auto p-4 bg-white dark:bg-neutral-800 rounded-lg shadow-lg"}>
-        {!isAdminPage && <h1 className=" text-blue-500 text-2xl font-bold mb-4">Sociovio {isMessagePage && user ? `— ${user.username}` : ''}</h1>}
+        {!isAdminPage && !isMessagePage && <h1 className="text-blue-500 text-2xl font-bold mb-4">Sociovio</h1>}
         {isAdminPage ? (
           <Admin />
         ) : isProfilePage ? (

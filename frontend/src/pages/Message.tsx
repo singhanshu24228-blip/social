@@ -29,7 +29,7 @@ function AutoPlayOnScreenVideo({
   onError?: React.ReactEventHandler<HTMLVideoElement>;
   src: string;
 }) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
@@ -309,7 +309,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       const newUsedUsers = new Set(usedRandomUsers);
       newUsedUsers.add(String(currentRandomUser._id || currentRandomUser.id));
       setUsedRandomUsers(newUsedUsers);
-      
+
       const nextUser = getRandomOnlineUser();
       if (nextUser) {
         setCurrentRandomUser(nextUser);
@@ -357,7 +357,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       }
     }
   };
-  
+
   const [statuses, setStatuses] = useState<any[]>([]);
   const [statusContent, setStatusContent] = useState('');
   const [statusMediaUrl, setStatusMediaUrl] = useState('');
@@ -375,6 +375,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [showWallpaperPicker, setShowWallpaperPicker] = useState(false);
+  const [showChatOptions, setShowChatOptions] = useState(false);
 
   // Auto-clear msg after 5 seconds
   useEffect(() => {
@@ -416,11 +417,11 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   const [reportTarget, setReportTarget] = useState<
     | null
     | {
-        type: 'post' | 'user';
-        postId?: string;
-        userId?: string;
-        username?: string;
-      }
+      type: 'post' | 'user';
+      postId?: string;
+      userId?: string;
+      username?: string;
+    }
   >(null);
   const [reportReason, setReportReason] = useState('');
   const [reportSubmitting, setReportSubmitting] = useState(false);
@@ -465,7 +466,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
           const u = JSON.parse(userObj);
           u.username = usernameForm.newUsername;
           localStorage.setItem('user', JSON.stringify(u));
-        } catch {}
+        } catch { }
       }
       window.location.reload();
     } catch (err: any) {
@@ -566,7 +567,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
           stored.about = u?.about ?? myBioDraft.trim();
           localStorage.setItem('user', JSON.stringify(stored));
         }
-      } catch {}
+      } catch { }
       setMsg('Bio updated');
     } catch (err: any) {
       setMyProfileError(err?.response?.data?.message || 'Failed to update bio');
@@ -708,7 +709,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       console.error('Error fetching night mode time:', err);
     }
   };
-  
+
   const handleEnterNightMode = async () => {
     setEnteringNightMode(true);
     try {
@@ -777,6 +778,28 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     loadBlockedUsers();
   }, []);
 
+  // Fetch own profile on mount so profile picture loads from Cloudinary immediately
+  useEffect(() => {
+    if (!myId) return;
+    api.get(`/users/profile/${encodeURIComponent(myId)}`)
+      .then((res) => {
+        const u = res.data?.user;
+        if (u) {
+          setMyProfile(u);
+          setMyBioDraft(String(u?.about || ''));
+          // Also keep localStorage in sync with the latest Cloudinary URL
+          try {
+            const stored = JSON.parse(localStorage.getItem('user') || 'null');
+            if (stored && u.profilePicture) {
+              stored.profilePicture = u.profilePicture;
+              localStorage.setItem('user', JSON.stringify(stored));
+            }
+          } catch { }
+        }
+      })
+      .catch(() => { /* silently ignore */ });
+  }, [myId]);
+
   // Posts state
   const [posts, setPosts] = useState<any[]>([]);
   const [postContent, setPostContent] = useState('');
@@ -798,7 +821,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   const [currentPlayingAudio, setCurrentPlayingAudio] = useState<HTMLAudioElement | null>(null);
   const [privateSongs, setPrivateSongs] = useState<string[]>([]);
   const [postMuted, setPostMuted] = useState<Record<string, boolean>>({});
-  const [floatingEmojis, setFloatingEmojis] = useState<Array<{id: string, emoji: string, postId: string}>>([]);
+  const [floatingEmojis, setFloatingEmojis] = useState<Array<{ id: string, emoji: string, postId: string }>>([]);
   // Comment state
   const [showComments, setShowComments] = useState<Record<string, boolean>>({});
   const [commentText, setCommentText] = useState<Record<string, string>>({});
@@ -835,10 +858,10 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     return () => {
       try {
         URL.revokeObjectURL(postImagePreviewUrl);
-      } catch {}
+      } catch { }
     };
   }, [postImagePreviewUrl]);
-  
+
   const filteredPosts = useMemo(() => {
     if (viewingOwnPosts) {
       return posts.filter((post: any) => {
@@ -944,7 +967,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
           stored.profilePicture = updatedUser?.profilePicture || profilePictureUrl;
           localStorage.setItem('user', JSON.stringify(stored));
         }
-      } catch {}
+      } catch { }
 
       setMsg('Profile picture updated');
     } catch (err: any) {
@@ -953,7 +976,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       setIsUploadingMyProfilePic(false);
       try {
         if (myProfilePicInputRef.current) myProfilePicInputRef.current.value = '';
-      } catch {}
+      } catch { }
     }
   };
 
@@ -1070,7 +1093,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   // Post scoring algorithm
   // const calculateScore = (post: any) => {
   //   const baseScore =
-  //     (post.reactions?.['❤️'] || 0) * 4 +  // love
+  //     (post.reactions?.['♡'] || 0) * 4 +  // love
   //     (post.reactions?.['😂'] || 0) * 2 +  // laugh
   //     (post.reactions?.['😠'] || 0) * 4 +  // angry
   //     (post.reactions?.['😢'] || 0) * 2;   // sad
@@ -1082,41 +1105,41 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
   //   return baseScore * timeFactor;
   // };
-   const calculateScore = (post: any, isFollowing: boolean) => {
-  const baseScore =
-    (post.reactions?.['❤️'] || 0) * 4 +  
-    (post.reactions?.['😂'] || 0) * 2 +  
-    (post.reactions?.['😢'] || 0) * 3 +  
-    (post.reactions?.['😠'] || 0) * 2;   
+  const calculateScore = (post: any, isFollowing: boolean) => {
+    const baseScore =
+      (post.reactions?.['♡'] || 0) * 4 +
+      (post.reactions?.['☺'] || 0) * 2 +
+      (post.reactions?.['☹'] || 0) * 3 +
+      (post.reactions?.['>_<'] || 0) * 2;
 
-  
-  const hoursSincePost =
-    (Date.now() - new Date(post.createdAt).getTime()) / (1000 * 60 * 60);
 
-  const timeFactor = 1 / (hoursSincePost + 2);
+    const hoursSincePost =
+      (Date.now() - new Date(post.createdAt).getTime()) / (1000 * 60 * 60);
 
-  let score = baseScore * timeFactor;
+    const timeFactor = 1 / (hoursSincePost + 2);
 
- 
-  const positive =
-    (post.reactions?.['❤️'] || 0) +
-    (post.reactions?.['😂'] || 0);
+    let score = baseScore * timeFactor;
 
-  const negative =
-    (post.reactions?.['😠'] || 0);
 
-  const sentimentBoost = (positive - negative) * 2;
+    const positive =
+      (post.reactions?.['♡'] || 0) +
+      (post.reactions?.['☺'] || 0);
 
-  score += sentimentBoost;
+    const negative =
+      (post.reactions?.['>_<'] || 0);
 
-  
-  // add boost for posts by followed users (was 30, now 20 as requested)
-  if (isFollowing) {
-    score += 20;
-  }
+    const sentimentBoost = (positive - negative) * 2;
 
-  return score;
-};
+    score += sentimentBoost;
+
+
+    // add boost for posts by followed users (was 30, now 20 as requested)
+    if (isFollowing) {
+      score += 20;
+    }
+
+    return score;
+  };
   // Notification state
   const [notification, setNotification] = useState<{ message: string; timestamp: number } | null>(null);
   const notificationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1148,7 +1171,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     if (!obj) return null;
     return String(obj.groupId || obj.id || obj._id || '');
   };
-  
+
   // Recent messages/chats state for messages view
   const [recentMessagesData, setRecentMessagesData] = useState<any[]>([]);
 
@@ -1328,7 +1351,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     const onPrivateMessage = async (payload: any) => {
       const senderId = normalizeUserId(payload.sender || { senderId: payload.senderId } || payload);
       const meId = String(me?._id || me?.id || '');
-      
+
       // Decrypt the message if it's from someone else
       let decryptedPayload = payload;
       try {
@@ -1347,7 +1370,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
           decryptedPayload = { ...payload, message: '[Encrypted message]' };
         }
       }
-      
+
       if (activePrivateUser && senderId && senderId === String(activePrivateUser._id || activePrivateUser.id)) {
         setMessages((prev) => [...prev, decryptedPayload]);
         // incoming in active chat - no unread but keep recent updated by incoming
@@ -1392,7 +1415,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     };
 
     const onStatusNew = (payload: any) => {
-  
+
       setStatuses((prev) => [payload, ...prev]);
     };
 
@@ -1454,7 +1477,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       sock.off('status:deleted', onStatusDeleted);
       sock.off('status:view', onStatusView);
       sock.off('notification:new', onNotificationNew);
-    }; 
+    };
   }, [activeGroup, activePrivateUser]);
 
   const joinAndEnter = async (g: any) => {
@@ -1469,14 +1492,14 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       setMsg('Joined');
       setMessages([]);
 
-      
+
       try {
         await loadGroupMessages(String(g.id));
       } catch (err) {
-        
+
       }
 
-      
+
       history.pushState(null, '', `/message`);
     } catch (err: any) {
       setMsg(err?.response?.data?.message || 'Failed to join group');
@@ -1575,9 +1598,9 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     try {
       await loadGroupMessages(String(g.id));
     } catch (err: any) {
-      
+
     }
-    
+
     history.pushState(null, '', `/message`);
   };
 
@@ -1669,13 +1692,13 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       localStorage.setItem(`recentPrivateChats_${me?.id}`, JSON.stringify(trimmed));
       setRecentChats(trimmed);
     } catch (e) {
-      
+
     }
 
     try {
       const res = await api.get(`/chats/private/${uid}`);
       const loadedMessages = res.data.messages || [];
-      
+
       // Decrypt messages
       const myId = String(me?._id || me?.id || '');
       const peerId = String(uid);
@@ -1693,7 +1716,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
         }
         return msg;
       }));
-      
+
       setMessages(decryptedMessages);
     } catch (err: any) {
       setMsg(err?.response?.data?.message || 'Failed to load messages');
@@ -1734,7 +1757,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       localStorage.setItem(`recentPrivateChats_${me?.id}`, JSON.stringify(filtered));
       setRecentChats(filtered);
     } catch (e) {
-      
+
     }
   };
 
@@ -1821,7 +1844,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       setMessageMediaType('');
       setMessageSelectedFileName('');
       setMessageMediaFile(null);
-      try { e.target.value = ''; } catch {}
+      try { e.target.value = ''; } catch { }
       return;
     }
 
@@ -1983,12 +2006,12 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       const payload: any = { content: statusContent.trim() };
       if (statusMediaUrl) {
         // Use the URL returned from server upload, not base64
-        payload.mediaUrl = statusMediaUrl; 
+        payload.mediaUrl = statusMediaUrl;
         if (statusMediaType) payload.mediaType = statusMediaType;
       }
-      
+
       const res = await api.post('/status', payload);
-      
+
       setStatuses((prev) => [{ id: res.data.statusId || res.data.statusId, userId: me?.id, content: statusContent.trim(), mediaUrl: statusMediaUrl, mediaType: statusMediaType, createdAt: new Date().toISOString() }, ...prev]);
       setStatusContent('');
       setStatusMediaUrl('');
@@ -2015,7 +2038,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     }
 
     setSelectedFileName(f.name);
-    
+
     // Validate file size
     if (f.size > 50 * 1024 * 1024) {
       setMsg(`File size (${(f.size / 1024 / 1024).toFixed(2)}MB) exceeds 50MB limit`);
@@ -2028,7 +2051,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       setStatusMediaUrl('');
       setStatusMediaType('');
       setSelectedFileName('');
-      try { e.target.value = ''; } catch {}
+      try { e.target.value = ''; } catch { }
       return;
     }
 
@@ -2067,7 +2090,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     if (f.type.startsWith('image/') && isUnsupportedImageFile(f)) {
       setMsg('HEIC/HEIF images are not supported. Please upload JPG/PNG/WebP instead.');
       setPostImage(null);
-      try { e.target.value = ''; } catch {}
+      try { e.target.value = ''; } catch { }
       return;
     }
     setPostImage(f);
@@ -2096,16 +2119,16 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     setPostLockedPrice(0);
     try {
       if (postImageInputRef.current) postImageInputRef.current.value = '';
-    } catch {}
+    } catch { }
   };
 
   const createPost = async () => {
     if (!postContent.trim() && !postImage && !postSong) return setMsg('Nothing to post');
-    
+
     if (postIsLocked && postLockedPrice <= 0) {
       return setMsg('Please enter a valid price for locked post');
     }
-    
+
     // Validate file size for mobile compatibility
     if (postImage) {
       const maxSize = 50 * 1024 * 1024; // 50MB
@@ -2114,7 +2137,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
         return;
       }
     }
-    
+
     console.log('Creating post with:', { content: postContent, hasSong: !!postSong, songValue: postSong, isLocked: postIsLocked, lockedPrice: postLockedPrice });
     setPostLoading(true);
     try {
@@ -2139,9 +2162,9 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       setMsg('Post created');
       try {
         if (postImageInputRef.current) postImageInputRef.current.value = '';
-      } catch {}
+      } catch { }
       setIsPostComposerOpen(false);
-      
+
       // Refetch posts to ensure we have the latest from the server
       // This ensures proper sorting, scoring, and all fields are correctly populated
       await fetchPosts();
@@ -2235,12 +2258,12 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       // Trigger floating emoji animation
       const floatingId = `${postId}-${Date.now()}-${Math.random()}`;
       setFloatingEmojis(prev => [...prev, { id: floatingId, emoji, postId }]);
-      
+
       // Remove floating emoji after 2 seconds
       setTimeout(() => {
         setFloatingEmojis(prev => prev.filter(e => e.id !== floatingId));
       }, 2000);
-      
+
       await api.post(`/posts/${postId}/react`, { emoji });
       fetchPosts();
     } catch (err: any) {
@@ -2314,7 +2337,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       setMsg('User blocked');
       try {
         clearPostSearch();
-      } catch {}
+      } catch { }
       await fetchPosts();
     } catch (err: any) {
       setMsg(err?.response?.data?.message || 'Failed to block user');
@@ -2533,7 +2556,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
         setMsg('Error exiting night mode: ' + (err.response?.data?.message || err.message));
       }
     };
-    
+
     return <NightInterface onExitNightMode={handleExitNightMode} />;
   }
 
@@ -2584,7 +2607,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   };
 
   return (
-    <div className="grid grid-cols-1 gap-4">
+    <div className="grid grid-cols-1 gap-4 pb-20 relative">
       {/* Notification Display */}
       {notification && (
         <div className="fixed top-4 right-4 bg-blue-500 text-black px-4 py-3 rounded-lg shadow-lg z-50 animate-pulse">
@@ -2642,66 +2665,22 @@ export default function Message({ groupName }: { groupName?: string | null }) {
         </div>
       )}
       {!groupName && (
-        <div className="flex items-center justify-between">
-          <div className="flex space-x-2">
-            <button
-              onClick={() => {
-                if (isPrivateChatPage) history.pushState(null, '', `/message`);
-                setMode('posts');
-              }}
-              className={`px-3 py-1 rounded ${mode === 'posts' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}
-            >
-              🏠
-            </button>
-            <button
-              onClick={() => {
-                if (isPrivateChatPage) history.pushState(null, '', `/message`);
-                setMode('groups');
-                setShowCreateGroup(true);
-              }}
-              className={`px-3 py-1 rounded ${mode === 'groups' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}
-            >
-              👥
-            </button>
-            <button
-              onClick={() => {
-                if (isPrivateChatPage) history.pushState(null, '', `/message`);
-                setMode('private');
-              }}
-              className={`px-3 py-1 rounded ${mode === 'private' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}
-            >
-              👤
-            </button>
-            <button
-              aria-label="Special"
-              onClick={() => {
-                if (isPrivateChatPage) history.pushState(null, '', `/message`);
-                setMode('status');
-              }}
-              className={`px-3 py-1 rounded ${mode === 'status' ? 'bg-blue-600 text-black' : 'bg-gray-100'}`}
-            >
-              <ActiveIcon />
-            </button>
-            {/* <button onClick={() => setMode('posts')} className={`px-3 py-1 rounded ${mode === 'posts' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>📸</button> */}
-            <button
-              onClick={() => {
-                if (isPrivateChatPage) history.pushState(null, '', `/message`);
-                setMode('random');
-              }}
-              className={`px-3 py-1 rounded ${mode === 'random' ? 'bg-blue-600 text-black' : 'bg-gray-100'}`}
-            >
-              🕵️‍♂️{' '}
-            </button>
-          </div>
-          <div className="flex items-center space-x-2 relative">
-            <div className="fixed top-4 right-4 z-30">
-              <button 
-                onClick={() => setShowNotifications(!showNotifications)}
-                className="relative px-3 py-1 hover:bg-gray-200 rounded transition"
+        <div className="flex items-center justify-between mb-0">
+          <h1 className="text-blue-500 text-2xl font-bold truncate pr-4">
+            Sociovio {me ? `— ${me.username || me.name}` : ''}
+          </h1>
+          <div className="flex items-center space-x-3 relative">
+            <div className="relative z-30">
+              <button
+                onClick={() => {
+                  setShowNotifications(!showNotifications);
+                  if (!showNotifications) setHeaderMenuOpen(false);
+                }}
+                className="relative p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition text-xl bg-gray-100 dark:bg-gray-800"
               >
                 🔔
                 {unreadCount > 0 && (
-                  <span className="absolute -top-2 -right-2 bg-red-500 text-black text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
                     {unreadCount}
                   </span>
                 )}
@@ -2712,15 +2691,20 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                 </div>
               )}
               {showNotifications && (
-                <div className="absolute right-0 mt-2 z-50">
-                  <NotificationPanel onClose={() => setShowNotifications(false)} />
+                <div
+                  className="fixed inset-0 z-[500] bg-black/60 backdrop-blur-sm flex flex-col"
+                  onClick={() => setShowNotifications(false)}
+                >
+                  <div onClick={(e) => e.stopPropagation()} className="flex flex-col flex-1 overflow-hidden">
+                    <NotificationPanel onClose={() => setShowNotifications(false)} />
+                  </div>
                 </div>
               )}
             </div>
-            <div className="relative">
+            <div className="relative z-30">
               <button
                 onClick={() => setHeaderMenuOpen(!headerMenuOpen)}
-                className="px-3 py-1 bg-blue-500 hover:bg-white rounded transition"
+                className="px-3 py-2 bg-blue-500 text-white hover:bg-blue-600 rounded-lg transition"
               >
                 ☰
               </button>
@@ -2735,7 +2719,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                 </div>
 
                 <aside
-                  className={`fixed top-0 right-0 z-50 h-full w-64 max-w-sm bg-white dark:bg-gray-900 shadow-xl transform transition-transform duration-300 ease-in-out ${headerMenuOpen ? 'translate-x-0' : 'translate-x-full'}`}
+                  className={`fixed top-0 right-0 z-[450] h-full w-64 max-w-sm bg-white dark:bg-gray-900 shadow-xl transform transition-transform duration-300 ease-in-out ${headerMenuOpen ? 'translate-x-0' : 'translate-x-full'}`}
                   aria-hidden={!headerMenuOpen}
                 >
                   <div className="p-4 flex items-center justify-between border-b border-gray-200 dark:border-gray-700">
@@ -2784,7 +2768,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                       <span>📏</span>
                       <span>Text Size</span>
                     </button>
-                  <button
+                    <button
                       className='w-full text-left px-3 py-2 flex items-center space-x-2 hover:bg-black rounded'
                       onClick={() => {
                         setShowUsernameDialog(true);
@@ -3169,42 +3153,43 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                     : (msg.normalizedSenderId || normalizeUserId(msg.sender || msg) || String(msg.sender?.id || msg.senderId || msg.sender?._id || ''));
                   const count = unreadCounts[key] || 0;
                   return (
-                  <div key={idx} className="p-3 bg-white border border-yellow-200 rounded flex justify-between items-center hover:bg-yellow-50">
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <div className="font-medium text-gray-800">
-                          {msg.sender?.username || msg.sender?.name || 'Unknown User'}
-                        </div>
-                        {count > 0 && (
-                          <div className="ml-2 bg-yellow-400 text-yellow-900 px-2 py-0.5 rounded-full text-xs font-semibold">
-                            {count}
+                    <div key={idx} className="p-3 bg-white border border-yellow-200 rounded flex justify-between items-center hover:bg-yellow-50">
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                          <div className="font-medium text-gray-800">
+                            {msg.sender?.username || msg.sender?.name || 'Unknown User'}
                           </div>
-                        )}
+                          {count > 0 && (
+                            <div className="ml-2 bg-yellow-400 text-yellow-900 px-2 py-0.5 rounded-full text-xs font-semibold">
+                              {count}
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-sm text-gray-600 truncate">
+                          {msg.type === 'group' && msg.groupName && `[${msg.groupName}] `}
+                          {msg.content || msg.text || '(media message)'}
+                        </div>
                       </div>
-                      <div className="text-sm text-gray-600 truncate">
-                        {msg.type === 'group' && msg.groupName && `[${msg.groupName}] `}
-                        {msg.content || msg.text || '(media message)'}
-                      </div>
+                      <button
+                        onClick={() => {
+                          if (msg.type === 'group') {
+                            const grp = getGroupById(msg.groupId);
+                            if (grp) enterGroup(grp);
+                          } else {
+                            openPrivateChat(msg.sender);
+                          }
+                        }}
+                        className="ml-2 px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600"
+                      >
+                        View
+                      </button>
                     </div>
-                    <button
-                      onClick={() => {
-                        if (msg.type === 'group') {
-                          const grp = getGroupById(msg.groupId);
-                          if (grp) enterGroup(grp);
-                        } else {
-                          openPrivateChat(msg.sender);
-                        }
-                      }}
-                      className="ml-2 px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600"
-                    >
-                      View
-                    </button>
-                  </div>
-                )})}
+                  )
+                })}
               </div>
             </div>
           )}
-          
+
           {/* Recent Messages */}
           {recentMessagesData.length > 0 && (
             <div>
@@ -3213,7 +3198,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                 {recentMessagesData.map((msg, idx) => {
                   const isFromMe = String(msg.senderId || msg.sender?.id) === String(me?.id);
                   const otherUser = msg.type === 'group' ? msg.sender : (isFromMe ? msg.receiver : msg.sender);
-                  const displayName = msg.type === 'group' 
+                  const displayName = msg.type === 'group'
                     ? `${msg.groupName} (${msg.sender?.username || 'Unknown'})`
                     : otherUser?.username || otherUser?.name || 'Unknown User';
                   // unread count key
@@ -3221,7 +3206,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                     ? (msg.normalizedGroupId || normalizeGroupId(msg) || String(msg.groupId || msg.id || msg._id || ''))
                     : (msg.normalizedSenderId || normalizeUserId(msg.sender || msg) || String(msg.senderId || msg.sender?.id || msg.receiverId || msg.receiver?.id || ''));
                   const count = unreadCounts[key] || 0;
-                  
+
                   return (
                     <div key={idx} className={`p-3 border rounded flex justify-between items-center ${isFromMe ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'} hover:opacity-80`}>
                       <div className="flex-1">
@@ -3337,6 +3322,42 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
       {mode === 'groups' && (
         <div>
+          {/* Chat Mode Toggle */}
+          <div className="flex items-center gap-1 bg-gray-800/60 rounded-full p-1 mb-4">
+            <button
+              onClick={() => { if (isPrivateChatPage) history.pushState(null, '', `/message`); setMode('private'); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
+                mode === 'private' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              👤 Private
+            </button>
+            <button
+              onClick={() => { if (isPrivateChatPage) history.pushState(null, '', `/message`); setMode('groups'); setShowCreateGroup(false); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
+                mode === 'groups' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              👥 Group
+            </button>
+            <button
+              onClick={() => { if (isPrivateChatPage) history.pushState(null, '', `/message`); setMode('random'); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
+                mode === 'random' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              🕵️ Random
+            </button>
+          </div>
+          {/* Create Group Button */}
+          {!groupName && (
+            <button
+              onClick={() => setShowCreateGroup(true)}
+              className="w-full mb-4 flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-all duration-200 shadow-md"
+            >
+              <span className="text-lg leading-none">+</span> Create New Group
+            </button>
+          )}
           {!groupName && (
             <>
 
@@ -3496,7 +3517,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                 </div>
                 <div className="mt-2">
                   <div className="flex items-center space-x-2">
-                  {/* <button onClick={openFile} disabled={isUploadingMessageMedia} className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">{isUploadingMessageMedia ? '⏳ Uploading...' : '📎'}</button> */}
+                    {/* <button onClick={openFile} disabled={isUploadingMessageMedia} className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">{isUploadingMessageMedia ? '⏳ Uploading...' : '📎'}</button> */}
 
                     {messageSelectedFileName && <div className="text-sm text-gray-500">{isUploadingMessageMedia ? 'Uploading: ' : 'Selected: '}{messageSelectedFileName}</div>}
                   </div>
@@ -3517,233 +3538,201 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       )}
 
       {mode === 'status' && (
-        <div  >
-          <button
-            onClick={() => setStatusFormOpen(!statusFormOpen)}
-            className="px-3 py-1 bg-blue-600 text-white rounded text-2xl hover:bg-blue-700 transition"
-            title="Create status"
-          >
-            +
-          </button>
-
-          {statusFormOpen && (
-          <div className="mt-2 border rounded p-2 bg-white">
-            <div className="relative">
-              <textarea value={statusContent} onChange={(e) => setStatusContent(e.target.value)} placeholder="What's happening?" className="w-full p-2 border rounded text-black pr-10" />
-              {statusContent.trim() && (
-                <button onClick={() => setStatusContent('')} className="absolute top-2 right-2 px-2 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600">🗑️</button>
-              )}
+        <div className="pb-4">
+          {/* Stories Row */}
+          <div className="flex items-center gap-3 overflow-x-auto px-1 py-3 no-scrollbar">
+            {/* Add Status Button */}
+            <div className="flex flex-col items-center flex-shrink-0">
+              <button
+                onClick={() => setStatusFormOpen(!statusFormOpen)}
+                className="w-16 h-16 rounded-full bg-gray-800 border-2 border-dashed border-blue-500 flex items-center justify-center hover:border-blue-400 transition-all hover:scale-105"
+                title="Add Status"
+              >
+                <span className="text-3xl text-blue-400">+</span>
+              </button>
+              <span className="text-[11px] text-gray-400 mt-1">Your Status</span>
             </div>
 
-            <div className="mt-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Attach photo or video (optional)</label>
-              <input id="status-file" type="file" accept="image/*,video/*" onChange={handleFileChange} className="hidden" disabled={isUploadingStatusMedia} />
-              <label htmlFor="status-file" className={`inline-flex items-center px-3 py-1 bg-blue-600 text-white rounded ${isUploadingStatusMedia ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>{isUploadingStatusMedia ? '⏳ Uploading...' : 'Choose file'}</label>
-              {selectedFileName && <div className="text-sm text-gray-500 mt-2">{isUploadingStatusMedia ? 'Uploading: ' : 'Selected: '}{selectedFileName}</div>}
-              {statusMediaUrl && (
-                <div className="mt-2">
-                  {statusMediaType === 'image' || statusMediaUrl.startsWith('data:image') ? (
-                    <img src={statusMediaUrl} alt="preview" className="max-h-40" />
-                  ) : (
-                    <video src={statusMediaUrl} controls autoPlay muted className="max-h-40" />
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="mt-2">
-              <button onClick={createStatus} className="px-3 py-1 bg-green-600 text-white rounded">Post</button>
-              <button onClick={() => { setStatusContent(''); setStatusMediaUrl(''); setStatusMediaType(''); setSelectedFileName(''); }} className="ml-2 px-3 py-1 bg-gray-200 rounded text-black">Clear</button>
-            </div>
-          </div>
-          )}
-
-          <h3 className="mt-4 font-semibold">Your status</h3>
-          {statuses.length === 0 && <div className="text-sm text-gray-500">No status for you</div>}
-          {statuses.filter(s => String(s.userId) === myId).map((s) => {
-            const id = s._id || s.id;
-            const username = usernameFor(s.userId || s.userId);
-            return (
-              <div key={String(id)} onClick={() => handleSelectStatus(s)} className="mt-1 p-1 border rounded bg-green-400 text-black relative cursor-pointer">
-                <div className="font-medium text-black">{username}</div>
-                <div className="text-sm text-black">{s.content}</div>
-                {s.views ? (
-                  <div className="absolute top-0 right-10 mt-2 mr-2 bg-white bg-opacity-75 text-black text-xs px-2 py-0.5 rounded">{s.views} views</div>
-                ) : null}
-                {s.mediaUrl && (
-                  <div className="mt-2">
-                    {(s.mediaType === 'image' || String(s.mediaUrl).startsWith('data:image') || String(s.mediaUrl).match(/\.(png|jpe?g|gif|webp)(\?|$)/i)) ? (
-                      <img src={resolveMediaUrl(s.mediaUrl)} alt="media" className="h-48 w-full object-cover" />
-                    ) : (
-                      <video src={resolveMediaUrl(s.mediaUrl)} controls className="h-48 w-full object-cover" />
-                    )}
-                  </div>
-                )}
-                <div className="absolute top-2 right-2">
-                  <button onClick={() => setMenuOpen(menuOpen === String(id) ? null : String(id))} className="px-2 py-1 text-gray-500 hover:text-gray-700 bg-red-200 bg-opacity-75 rounded">⋮</button>
-                  {menuOpen === String(id) && (
-                    <div className="absolute right-0 mt-1 w-30 bg-green-400 border rounded shadow z-10">
-                      <button onClick={() => {
-                        const uid = s.userId || s.userId;
-                        const u = nearbyUsers.find((x) => String(x.id) === String(uid) || String(x._id) === String(uid));
-                        if (u) openPrivateChat(u);
-                        else setMsg('User info not available to start chat');
-                        setMenuOpen(null);
-                      }} className="block w-full text-left px-3 py-2 text-black hover:bg-grey-100">Message</button>
-                      {String(s.userId) === myId && (
-                        <button onClick={async () => {
-                          if (!confirm('Delete this status?')) return;
-                          try {
-                            await api.delete(`/status/${s._id || s.id}`);
-                            setStatuses(prev => prev.filter(x => String(x._id || x.id) !== String(s._id || s.id)));
-                            setMsg('Status deleted');
-                          } catch (err: any) {
-                            setMsg(err?.response?.data?.message || 'Failed to delete status');
-                          }
-                          setMenuOpen(null);
-                        }} className="block w-full text-left px-3 py-2 hover:bg-gray-100 text-red-600">Delete</button>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div className="text-xs text-gray-400">{new Date(s.createdAt || s.createdAt).toLocaleString()}</div>
-              </div>
-            );
-          })}
-          <h3 className="mt-4 font-semibold">Other's status</h3>
-          <div className="mt-2 flex space-x-2 overflow-x-auto">
-            {statuses.filter(s => String(s.userId) !== String(me?.id)).map((s) => {
+            {/* My own statuses — shown first */}
+            {statuses.filter(s => String(s.userId) === myId).map((s) => {
               const id = s._id || s.id;
-              const username = usernameFor(s.userId || s.userId);
               const isSelected = String(selectedStatusId) === String(id);
               return (
-                <div key={String(id)} className="flex flex-col items-center flex-shrink-0 group cursor-pointer" onClick={() => handleSelectStatus(s)}>
-                  <div className={`w-35 h-35 border rounded-full flex items-center justify-center p-2 bg-green-400 text-black overflow-hidden relative transition-all ${isSelected ? 'ring-4 ring-blue-600' : ''}`}>
-                    {s.mediaUrl && (
-                      <div>
-                        {(s.mediaType === 'image' || String(s.mediaUrl).startsWith('data:image') || String(s.mediaUrl).match(/\.(png|jpe?g|gif|webp)(\?|$)/i)) ? (
-                          <img src={resolveMediaUrl(s.mediaUrl)} alt="media" className="w-24 h-24 rounded-full object-cover " />
-                        ) : (
-                          <video src={resolveMediaUrl(s.mediaUrl)} className="w-24 h-24 rounded-full object-cover " />
-                        )}
-                      </div>
-                    )}
-                    <div className="absolute top-1 right-1 group-hover:top-2 group-hover:right-2">
-                      <button onClick={() => setMenuOpen(menuOpen === String(id) ? null : String(id))} className="px-1 py-0.5 text-gray-500 hover:text-gray-700 text-xs">⋮</button>
-                      {menuOpen === String(id) && (
-                        <div className="absolute right-0 mt-1 w-24 bg-white border rounded shadow z-10 text-xs">
-                          <button onClick={() => {
-                            const uid = s.userId || s.userId;
-                            const u = nearbyUsers.find((x) => String(x.id) === String(uid) || String(x._id) === String(uid));
-                            if (u) openPrivateChat(u);
-                            else setMsg('User info not available to start chat');
-                            setMenuOpen(null);
-                          }} className="block w-full text-left px-2 py-1 text-black hover:bg-grey-100">Message</button>
-                          {String(s.userId) === myId && (
-                            <button onClick={async () => {
-                              if (!confirm('Delete this status?')) return;
-                              try {
-                                await api.delete(`/status/${s._id || s.id}`);
-                                setStatuses(prev => prev.filter(x => String(x._id || x.id) !== String(s._id || s.id)));
-                                setMsg('Status deleted');
-                              } catch (err: any) {
-                                setMsg(err?.response?.data?.message || 'Failed to delete status');
-                              }
-                              setMenuOpen(null);
-                            }} className="block w-full text-left px-2 py-1 hover:bg-gray-100 text-red-600">Delete</button>
-                          )}
-                        </div>
+                <div key={String(id)} className="flex flex-col items-center flex-shrink-0 cursor-pointer" onClick={() => handleSelectStatus(s)}>
+                  <div className={`w-16 h-16 rounded-full p-0.5 ${isSelected ? 'bg-blue-500' : 'bg-gradient-to-tr from-green-400 to-blue-500'}`}>
+                    <div className="w-full h-full rounded-full bg-black overflow-hidden flex items-center justify-center relative">
+                      {s.mediaUrl ? (
+                        <img src={resolveMediaUrl(s.mediaUrl)} alt="my status" className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-white text-xs text-center px-1 line-clamp-3">{s.content}</span>
                       )}
                     </div>
                   </div>
-                  <div className="font-medium text-center text-xs mt-1 text-white">{username}</div>
-                  <div className="text-xs text-gray-400 text-center">{new Date(s.createdAt || s.createdAt).toLocaleString()}</div>
+                  <span className="text-[11px] text-gray-300 mt-1">Me</span>
+                </div>
+              );
+            })}
+
+            {/* Other users' statuses */}
+            {statuses.filter(s => String(s.userId) !== String(me?.id)).map((s) => {
+              const id = s._id || s.id;
+              const username = usernameFor(s.userId);
+              const isSelected = String(selectedStatusId) === String(id);
+              const initial = (username || 'U').charAt(0).toUpperCase();
+              return (
+                <div key={String(id)} className="flex flex-col items-center flex-shrink-0 cursor-pointer" onClick={() => handleSelectStatus(s)}>
+                  <div className={`w-16 h-16 rounded-full p-0.5 ${isSelected ? 'bg-blue-500' : 'bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600'}`}>
+                    <div className="w-full h-full rounded-full bg-black overflow-hidden flex items-center justify-center">
+                      {s.mediaUrl && (s.mediaType === 'image' || String(s.mediaUrl).match(/\.(png|jpe?g|gif|webp)(\?|$)/i)) ? (
+                        <img src={resolveMediaUrl(s.mediaUrl)} alt={username} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-white font-bold text-xl">{initial}</span>
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-[11px] text-gray-300 mt-1 max-w-[64px] truncate text-center">{username}</span>
                 </div>
               );
             })}
           </div>
 
-          {selectedStatusId && (
-            <div className="mt-6 p-4 border-2 border-blue-600 rounded-lg bg-white">
-              {(() => {
-                const selectedStatus = statuses.find(s => String(s._id || s.id) === String(selectedStatusId));
-                if (!selectedStatus) return null;
-                const username = usernameFor(selectedStatus.userId || selectedStatus.userId);
-                return (
-                  <div>
-                    <div className="flex justify-between items-center mb-3">
-                      <div>
-                        <h4 className="font-semibold text-black text-lg">{username}</h4>
-                        <p className="text-xs text-gray-500">{new Date(selectedStatus.createdAt || selectedStatus.createdAt).toLocaleString()}</p>
-                      </div>
-                      <button
-                        onClick={() => setSelectedStatusId(null)}
-                        className="px-2 py-1 bg-gray-300 rounded hover:bg-gray-400 text-black"
-                      >
-                        ✕
-                      </button>
+          {/* Compose Status */}
+          {statusFormOpen && (
+            <div className="mx-1 mb-4 bg-gray-900 border border-gray-700 rounded-2xl overflow-hidden shadow-2xl">
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-white font-semibold text-base">New Status</h3>
+                  <button onClick={() => setStatusFormOpen(false)} className="text-gray-400 hover:text-white text-xl leading-none">✕</button>
+                </div>
+                <textarea
+                  value={statusContent}
+                  onChange={(e) => setStatusContent(e.target.value)}
+                  placeholder="What's on your mind?"
+                  rows={3}
+                  className="w-full bg-gray-800 text-white placeholder-gray-500 rounded-xl px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 border border-gray-700"
+                />
+                <div className="mt-3 flex items-center gap-2">
+                  <input id="status-file" type="file" accept="image/*,video/*" onChange={handleFileChange} className="hidden" disabled={isUploadingStatusMedia} />
+                  <label htmlFor="status-file" className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium cursor-pointer transition ${isUploadingStatusMedia ? 'bg-gray-700 text-gray-400 cursor-not-allowed' : 'bg-gray-700 text-gray-200 hover:bg-gray-600'}`}>
+                    📷 {isUploadingStatusMedia ? 'Uploading...' : 'Photo/Video'}
+                  </label>
+                  {selectedFileName && <span className="text-xs text-gray-400 truncate max-w-[120px]">{selectedFileName}</span>}
+                  <button
+                    onClick={createStatus}
+                    disabled={!statusContent.trim() && !statusMediaUrl}
+                    className="ml-auto px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-sm font-semibold transition"
+                  >
+                    Share
+                  </button>
+                </div>
+                {statusMediaUrl && (
+                  <div className="mt-3 rounded-xl overflow-hidden max-h-48">
+                    {statusMediaType === 'image' || statusMediaUrl.startsWith('data:image') ? (
+                      <img src={statusMediaUrl} alt="preview" className="w-full object-cover max-h-48" />
+                    ) : (
+                      <video src={statusMediaUrl} controls muted className="w-full max-h-48" />
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Full Status Viewer */}
+          {selectedStatusId && (() => {
+            const selectedStatus = statuses.find(s => String(s._id || s.id) === String(selectedStatusId));
+            if (!selectedStatus) return null;
+            const username = usernameFor(selectedStatus.userId);
+            const isOwn = String(selectedStatus.userId) === myId;
+            return (
+              <div className="fixed inset-0 z-[200] bg-black flex flex-col" onClick={() => setSelectedStatusId(null)}>
+                {/* Header */}
+                <div className="flex items-center gap-3 px-4 pt-12 pb-3" onClick={e => e.stopPropagation()}>
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 p-0.5 flex-shrink-0">
+                    <div className="w-full h-full rounded-full bg-black flex items-center justify-center">
+                      <span className="text-white font-bold">{(username || 'U').charAt(0).toUpperCase()}</span>
                     </div>
-                    {String(selectedStatus.userId) === myId && (
-                      <div className="flex items-center justify-between gap-4 relative">
-                        <div className="text-sm text-gray-600">Views: <span className="font-medium text-black">{selectedStatus.views || 0}</span></div>
-                        <div className="relative">
-                          <button
-                            onClick={() => setShowViewerDropdown((v) => !v)}
-                            className="text-sm text-gray-600 px-2 py-1 bg-grey-100 rounded"
-                          >
-                            Seen by ▾
-                          </button>
-                          {showViewerDropdown && (
-                            <div className="absolute right-0 mt-2 w-56 max-h-60 overflow-auto bg-black border rounded shadow z-50">
-                              {(selectedStatus.viewers || []).length === 0 ? (
-                                <div className="p-2 text-sm text-gray-500">No views yet</div>
-                              ) : (
-                                (selectedStatus.viewers || []).map((v: any) => (
-                                  <div key={String(v._id || v.id || v.username || v.name)} className="px-3 py-2 text-sm border-b last:border-b-0">
-                                    {v.username || v.name}
-                                  </div>
-                                ))
-                              )}
-                            </div>
-                          )}
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-white font-semibold text-sm">{username}</div>
+                    <div className="text-gray-400 text-xs">{new Date(selectedStatus.createdAt).toLocaleString()}</div>
+                  </div>
+                  {isOwn && (
+                    <div className="flex items-center gap-2 text-sm text-gray-300">
+                      <span>👁 {selectedStatus.views || 0}</span>
+                      <button onClick={() => setShowViewerDropdown(v => !v)} className="text-gray-400 hover:text-white px-2 py-1 bg-gray-800 rounded-lg text-xs">Seen by ▾</button>
+                      {showViewerDropdown && (
+                        <div className="absolute right-4 top-24 w-52 max-h-52 overflow-auto bg-gray-900 border border-gray-700 rounded-xl shadow-2xl z-50">
+                          {(selectedStatus.viewers || []).length === 0 ? (
+                            <div className="p-3 text-sm text-gray-400 text-center">No views yet</div>
+                          ) : (selectedStatus.viewers || []).map((v: any) => (
+                            <div key={String(v._id || v.id || v.username)} className="px-4 py-2 text-sm text-white border-b border-gray-800 last:border-0">{v.username || v.name}</div>
+                          ))}
                         </div>
-                      </div>
-                    )}
-                    {selectedStatus.mediaUrl && (
-                      <div className="mt-3">
-                        {(selectedStatus.mediaType === 'image' || String(selectedStatus.mediaUrl).startsWith('data:image') || String(selectedStatus.mediaUrl).match(/\.(png|jpe?g|gif|webp)(\?|$)/i)) ? (
-                          <img
-                            src={resolveMediaUrl(selectedStatus.mediaUrl)}
-                            alt="media"
-                            className="w-full h-96 object-cover rounded cursor-zoom-in"
-                            onClick={() => setZoomedPostMedia({ src: resolveMediaUrl(selectedStatus.mediaUrl), kind: 'image' })}
-                          />
-                        ) : (
-                          <video
-                            src={resolveMediaUrl(selectedStatus.mediaUrl)}
-                            autoPlay
-                            muted
-                            className="w-full h-96 object-cover rounded cursor-zoom-in"
-                            onClick={() => setZoomedPostMedia({ src: resolveMediaUrl(selectedStatus.mediaUrl), kind: 'video' })}
-                          />
-                        )}
-                      </div>
-                    )}
-                    <p className="text-sm text-black mt-3">{selectedStatus.content}</p>
+                      )}
+                    </div>
+                  )}
+                  <button onClick={() => setSelectedStatusId(null)} className="text-white text-2xl ml-2">✕</button>
+                </div>
+
+                {/* Media */}
+                <div className="flex-1 flex items-center justify-center px-2" onClick={e => e.stopPropagation()}>
+                  {selectedStatus.mediaUrl ? (
+                    String(selectedStatus.mediaUrl).match(/\.(mp4|webm|mov|m4v)(\?|$)/i) ? (
+                      <video src={resolveMediaUrl(selectedStatus.mediaUrl)} autoPlay controls className="max-h-full max-w-full rounded-xl object-contain" />
+                    ) : (
+                      <img src={resolveMediaUrl(selectedStatus.mediaUrl)} alt="status" className="max-h-full max-w-full rounded-xl object-contain" onClick={() => setZoomedPostMedia({ src: resolveMediaUrl(selectedStatus.mediaUrl), kind: 'image' })} />
+                    )
+                  ) : (
+                    <div className="flex items-center justify-center p-8">
+                      <p className="text-white text-xl text-center font-medium leading-relaxed">{selectedStatus.content}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Caption & Actions */}
+                <div className="px-4 pb-10 pt-3" onClick={e => e.stopPropagation()}>
+                  {selectedStatus.content && selectedStatus.mediaUrl && (
+                    <p className="text-white text-sm mb-3">{selectedStatus.content}</p>
+                  )}
+                  {!isOwn && (
                     <button
                       onClick={() => {
-                        const uid = selectedStatus.userId || selectedStatus.userId;
-                        const u = nearbyUsers.find((x) => String(x.id) === String(uid) || String(x._id) === String(uid));
-                        if (u) openPrivateChat(u);
+                        const uid = selectedStatus.userId;
+                        const u = nearbyUsers.find((x: any) => String(x.id) === String(uid) || String(x._id) === String(uid));
+                        if (u) { openPrivateChat(u); setSelectedStatusId(null); }
                         else setMsg('User info not available to start chat');
                       }}
-                      className="mt-3 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 w-full"
+                      className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-semibold text-sm transition"
                     >
-                      Message
+                      💬 Message {username}
                     </button>
-                  </div>
-                );
-              })()}
+                  )}
+                  {isOwn && (
+                    <button
+                      onClick={async () => {
+                        if (!confirm('Delete this status?')) return;
+                        try {
+                          await api.delete(`/status/${selectedStatus._id || selectedStatus.id}`);
+                          setStatuses(prev => prev.filter(x => String(x._id || x.id) !== String(selectedStatus._id || selectedStatus.id)));
+                          setSelectedStatusId(null);
+                          setMsg('Status deleted');
+                        } catch (err: any) { setMsg(err?.response?.data?.message || 'Failed to delete'); }
+                      }}
+                      className="w-full py-3 bg-red-600 hover:bg-red-500 text-white rounded-2xl font-semibold text-sm transition"
+                    >
+                      🗑️ Delete Status
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          {statuses.length === 0 && !statusFormOpen && (
+            <div className="flex flex-col items-center justify-center py-16 text-gray-500">
+              <div className="text-5xl mb-3">🌟</div>
+              <p className="text-sm">No statuses yet. Be the first to share!</p>
             </div>
           )}
         </div>
@@ -3751,6 +3740,33 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
       {mode === 'private' && !isPrivateChatPage && (
         <div>
+          {/* Chat Mode Toggle */}
+          <div className="flex items-center gap-1 bg-gray-800/60 rounded-full p-1 mb-4">
+            <button
+              onClick={() => { setMode('private'); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
+                mode === 'private' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              👤 Private
+            </button>
+            <button
+              onClick={() => { setMode('groups'); setShowCreateGroup(false); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
+                mode === 'groups' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              👥 Group
+            </button>
+            <button
+              onClick={() => { setMode('random'); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
+                mode === 'random' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              🕵️ Random
+            </button>
+          </div>
           <h2 className="text-lg font-semibold">Private chat</h2>
           <div className="mt-2 flex space-x-2">
             <input value={privateSearch} onChange={(e) => setPrivateSearch(e.target.value)} placeholder="Search username" className="flex-1 p-2 border rounded text-black" />
@@ -3905,9 +3921,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
       {mode === 'posts' && (
         <div>
-          <h2 className="text-lg font-semibold">Posts</h2>
-
-          <div className="mt-3 flex items-center gap-2">
+          <div className={`fixed top-4 left-2 z-40 flex flex-col items-center gap-3 ${showNotifications || mode !== 'posts' ? 'hidden' : ''}`}>
             <button
               onClick={() => {
                 if (isPostComposerOpen) {
@@ -3917,85 +3931,58 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                   setIsPostComposerOpen(true);
                 }
               }}
-              className={`h-10 w-10 rounded-full flex items-center justify-center shadow-sm transition ${
-                isPostComposerOpen
-                  ? 'bg-gray-900 text-white hover:bg-gray-800'
-                  : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700'
-              }`}
+              className="flex items-center justify-center transition text-7xl text-white hover:scale-110 leading-none"
               title={isPostComposerOpen ? 'Close composer' : 'Create post'}
               aria-label={isPostComposerOpen ? 'Close post composer' : 'Open post composer'}
             >
               {isPostComposerOpen ? '✕' : '+'}
             </button>
-            <button
-              onClick={() => setPostSearchOpen(!postSearchOpen)}
-              className={`h-10 w-10 rounded-full flex items-center justify-center border transition ${
-                postSearchOpen ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-200 text-gray-800 hover:bg-gray-50'
-              }`}
-              title="Search posts"
-              aria-label="Search posts"
-            >
-              🔍
-            </button>
-            <button
-              onClick={() => {
-                openMyProfileModal();
-              }}
-              className={`h-10 w-10 rounded-full flex items-center justify-center transition ${
-                showMyProfileModal ? 'bg-blue-600 text-white' : viewingOwnPosts ? 'bg-purple-600 text-white' : 'bg-gray-300'
-              }`}
-              title={viewingOwnPosts ? 'Viewing my posts' : 'View my profile'}
-              aria-label="View my profile"
-            >
-              👁️
-            </button>
-            <button
-              onClick={handleEnterNightMode}
-              disabled={enteringNightMode || !timeInfo?.isInEntryWindow}
-              className="text-2xl hover:scale-110 transition-transform cursor-pointer disabled:opacity-50 animate-pulse"
-              title={
-                timeInfo?.isInEntryWindow
-                  ? 'Enter Night Mode'
-                  : timeInfo?.message
-                    ? timeInfo.message
-                    : 'Night mode not available now'
-              }
-              aria-label="Enter Night Mode"
-            >
-              🌙
-            </button>
           </div>
 
           {postSearchOpen && (
-            <div className="mt-3 p-3 border rounded bg-black-500">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={postSearchQuery}
-                  onChange={(e) => setPostSearchQuery(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && searchUserPosts()}
-                  placeholder="Enter username..."
-                  className="flex-1 p-2 border rounded text-sm text-black"
-                />
+            <div className="mt-3 px-1">
+              <div className="relative flex items-center gap-2">
+                {/* Search icon inside input */}
+                <div className="relative flex-1">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-base pointer-events-none select-none">🔍</span>
+                  <input
+                    type="text"
+                    value={postSearchQuery}
+                    onChange={(e) => setPostSearchQuery(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && searchUserPosts()}
+                    placeholder="Search by username..."
+                    autoFocus
+                    className="w-full pl-9 pr-4 py-2.5 rounded-full bg-gray-800 text-white placeholder-gray-400 text-sm border border-gray-600 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 transition-all duration-200"
+                  />
+                  {postSearchQuery && (
+                    <button
+                      onClick={() => { setPostSearchQuery(''); setPostSearchResults([]); }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition text-sm"
+                    >✕</button>
+                  )}
+                </div>
                 <button
                   onClick={searchUserPosts}
-                  disabled={postIsSearching}
-                  className="border border-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded text-sm disabled:opacity-50"
+                  disabled={postIsSearching || !postSearchQuery.trim()}
+                  className="flex-shrink-0 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-200 shadow-md"
                 >
-                  {postIsSearching ? 'Searching...' : 'Search'}
+                  {postIsSearching ? (
+                    <span className="flex items-center gap-1.5"><span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full"></span>Searching</span>
+                  ) : 'Search'}
                 </button>
                 {selectedPostUsername && (
                   <button
-                    onClick={() => {
-                      clearPostSearch();
-                      setPostSearchOpen(false);
-                    }}
-                    className="border border-gray-400 text-white px-2 py-2 rounded text-sm"
-                  >
-                    ✕
-                  </button>
+                    onClick={() => { clearPostSearch(); setPostSearchOpen(false); }}
+                    className="flex-shrink-0 text-gray-400 hover:text-white bg-gray-700 hover:bg-gray-600 px-3 py-2.5 rounded-full text-sm transition-all duration-200"
+                    title="Clear search"
+                  >✕</button>
                 )}
               </div>
+              {selectedPostUsername && (
+                <p className="mt-2 text-xs text-gray-400 pl-1">
+                  Showing posts by <span className="text-blue-400 font-semibold">@{selectedPostUsername}</span>
+                </p>
+              )}
             </div>
           )}
 
@@ -4004,7 +3991,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
               <div className="flex gap-4">
                 {/* Followers Section */}
                 <div className="flex-1">
-                  <h3 
+                  <h3
                     onClick={() => setSelectedFollowersList('followers')}
                     className="font-semibold text-white cursor-pointer hover:text-blue-400 transition text-sm"
                   >
@@ -4014,7 +4001,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
                 {/* Following Section */}
                 <div className="flex-1">
-                  <h3 
+                  <h3
                     onClick={() => setSelectedFollowersList('following')}
                     className="font-semibold text-white cursor-pointer hover:text-green-400 transition text-sm"
                   >
@@ -4096,216 +4083,212 @@ export default function Message({ groupName }: { groupName?: string | null }) {
               )}
             </div>
           )}
-            {isPostComposerOpen && (
-              <div className="mt-4 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-                <div className="flex items-center justify-between gap-3 bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="h-9 w-9 flex-shrink-0 rounded-full bg-white/15 ring-1 ring-white/20 flex items-center justify-center text-white font-bold">
-                      {postAnonymous ? '🕶️' : (me?.username?.[0]?.toUpperCase() || 'U')}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-white font-semibold leading-tight">Create a post</div>
-                      <div className="text-xs text-white/80 truncate">
-                        {postAnonymous ? 'Posting anonymously' : `Posting as @${me?.username || 'me'}`}
-                        {postPrivate ? ' • Followers only' : ' • Public'}
-                        {postIsLocked ? ' • Locked' : ''}
-                      </div>
+          {isPostComposerOpen && (
+            <div className="mt-4 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+              <div className="flex items-center justify-between gap-3 bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="h-9 w-9 flex-shrink-0 rounded-full bg-white/15 ring-1 ring-white/20 flex items-center justify-center text-white font-bold">
+                    {postAnonymous ? '🕶️' : (me?.username?.[0]?.toUpperCase() || 'U')}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-white font-semibold leading-tight">Create a post</div>
+                    <div className="text-xs text-white/80 truncate">
+                      {postAnonymous ? 'Posting anonymously' : `Posting as @${me?.username || 'me'}`}
+                      {postPrivate ? ' • Followers only' : ' • Public'}
+                      {postIsLocked ? ' • Locked' : ''}
                     </div>
                   </div>
-                  <button
-                    onClick={() => {
-                      setIsPostComposerOpen(false);
-                      resetPostComposer();
-                    }}
-                    className="h-9 w-9 flex-shrink-0 rounded-full bg-white/15 text-white hover:bg-white/25 transition"
-                    title="Close"
-                    aria-label="Close composer"
-                  >
-                    ✕
-                  </button>
                 </div>
- 
-                <div className="p-4 space-y-4">
-                  <div>
-                    <textarea
-                      ref={postComposerTextareaRef}
-                      value={postContent}
-                      onChange={(e) => setPostContent(e.target.value)}
-                      placeholder="Write something..."
-                      className="w-full min-h-[70px] rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-gray-900 placeholder-gray-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      rows={4}
-                    />
-                    <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
-                      <span>{postContent.trim().length > 0 ? `${postContent.trim().length} characters` : ''}</span>
-                      {(postPrivate || postAnonymous || postIsLocked) && (
-                        <span className="text-gray-600">
-                          {postPrivate ? 'Followers only' : 'Public'}
-                          {postIsLocked ? ' • Locked' : ''}
-                        </span>
-                      )}
-                    </div>
-                  </div>
- 
-                  <div className="flex flex-col gap-3">
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                      <div className="flex items-center gap-3">
-                        <input
-                          ref={postImageInputRef}
-                          type="file"
-                          accept="image/*,video/*"
-                          onChange={handlePostImageChange}
-                          className="sr-only"
-                          id="post-image"
-                        />
-                        <label
-                          htmlFor="post-image"
-                          className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium shadow-sm transition ${
-                            postLoading ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-gray-900 text-white hover:bg-gray-800 cursor-pointer'
-                          }`}
-                        >
-                          📎 Attach media from gallery
-                        </label>
-                        {postImage && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setPostImage(null);
-                              try {
-                                if (postImageInputRef.current) postImageInputRef.current.value = '';
-                              } catch {}
-                            }}
-                            className="text-sm text-gray-600 hover:text-gray-900 underline underline-offset-2"
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </div>
- 
-                      <div className="flex-1 min-w-0">
-                        {postImage ? (
-                          <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2">
-                            <div className="h-9 w-9 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
-                              {postImage.type.startsWith('video/') ? '🎬' : '🖼️'}
-                            </div>
-                            <div className="min-w-0">
-                              <div className="text-sm font-medium text-gray-900 truncate">{postImage.name}</div>
-                              <div className="text-xs text-gray-500">{(postImage.size / 1024 / 1024).toFixed(1)} MB</div>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="text-sm text-gray-500"> upload an image or video</div>
-                        )}
-                      </div>
-                    </div>
- 
-                    {postImagePreviewUrl && postImage && (
-                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
-                        {postImage.type.startsWith('video/') ? (
-                          <video src={postImagePreviewUrl} controls autoPlay muted className="w-full max-h-72 rounded-lg bg-black" />
-                        ) : (
-                          <img src={postImagePreviewUrl} alt="Selected media preview" className="w-full max-h-72 object-contain rounded-lg bg-white" />
-                        )}
-                      </div>
+                <button
+                  onClick={() => {
+                    setIsPostComposerOpen(false);
+                    resetPostComposer();
+                  }}
+                  className="h-9 w-9 flex-shrink-0 rounded-full bg-white/15 text-white hover:bg-white/25 transition"
+                  title="Close"
+                  aria-label="Close composer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="p-4 space-y-4">
+                <div>
+                  <textarea
+                    ref={postComposerTextareaRef}
+                    value={postContent}
+                    onChange={(e) => setPostContent(e.target.value)}
+                    placeholder="Write something..."
+                    className="w-full min-h-[70px] rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-gray-900 placeholder-gray-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    rows={4}
+                  />
+                  <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
+                    <span>{postContent.trim().length > 0 ? `${postContent.trim().length} characters` : ''}</span>
+                    {(postPrivate || postAnonymous || postIsLocked) && (
+                      <span className="text-gray-600">
+                        {postPrivate ? 'Followers only' : 'Public'}
+                        {postIsLocked ? ' • Locked' : ''}
+                      </span>
                     )}
                   </div>
- 
-                  <div className="rounded-xl border border-gray-200 bg-white">
-                    <div className="flex items-center justify-between gap-3 border-b border-gray-200 bg-gray-50 px-3 py-2">
-                      <div className="text-sm font-medium text-gray-900">Attach a song</div>
-                      {postSong && (
+                </div>
+
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <div className="flex items-center gap-3">
+                      <input
+                        ref={postImageInputRef}
+                        type="file"
+                        accept="image/*,video/*"
+                        onChange={handlePostImageChange}
+                        className="sr-only"
+                        id="post-image"
+                      />
+                      <label
+                        htmlFor="post-image"
+                        className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium shadow-sm transition ${postLoading ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-gray-900 text-white hover:bg-gray-800 cursor-pointer'
+                          }`}
+                      >
+                        📎 Attach media from gallery
+                      </label>
+                      {postImage && (
                         <button
                           type="button"
-                          onClick={() => setPostSong('')}
-                          className="text-xs text-gray-600 hover:text-gray-900 underline underline-offset-2"
+                          onClick={() => {
+                            setPostImage(null);
+                            try {
+                              if (postImageInputRef.current) postImageInputRef.current.value = '';
+                            } catch { }
+                          }}
+                          className="text-sm text-gray-600 hover:text-gray-900 underline underline-offset-2"
                         >
-                          Clear
+                          Remove
                         </button>
                       )}
                     </div>
-                    <div className="p-3">
-                      <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                        {publicSongs.map((name) => {
-                          const songUrl = `/${encodeURIComponent(name)}`;
-                          return (
-                            <SongSelector
-                              key={name}
-                              songUrl={songUrl}
-                              songName={name}
-                              isSelected={postSong === songUrl}
-                              onSelect={() => setPostSong(songUrl)}
-                              postImage={postImage}
-                            />
-                          );
-                        })}
-                      </div>
+
+                    <div className="flex-1 min-w-0">
+                      {postImage ? (
+                        <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2">
+                          <div className="h-9 w-9 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                            {postImage.type.startsWith('video/') ? '🎬' : '🖼️'}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-gray-900 truncate">{postImage.name}</div>
+                            <div className="text-xs text-gray-500">{(postImage.size / 1024 / 1024).toFixed(1)} MB</div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-sm text-gray-500"> upload an image or video</div>
+                      )}
                     </div>
                   </div>
- 
-                  <div className="flex flex-wrap items-center gap-2">
-                    <label
-                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition cursor-pointer select-none ${
-                        postAnonymous ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                      }`}
-                    >
-                      <input type="checkbox" checked={postAnonymous} onChange={(e) => setPostAnonymous(e.target.checked)} className="h-4 w-4 accent-amber-600" />
-                      Anonymous
-                    </label>
- 
-                    <label
-                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition cursor-pointer select-none ${
-                        postPrivate ? 'bg-blue-50 border-blue-300 text-blue-900' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                      }`}
-                    >
-                      <input type="checkbox" checked={postPrivate} onChange={(e) => setPostPrivate(e.target.checked)} className="h-4 w-4 accent-blue-600" />
-                      Followers only
-                    </label>
- 
-                    <label
-                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition cursor-pointer select-none ${
-                        postIsLocked ? 'bg-purple-50 border-purple-300 text-purple-900' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                      }`}
-                    >
-                      <input type="checkbox" checked={postIsLocked} onChange={(e) => setPostIsLocked(e.target.checked)} className="h-4 w-4 accent-purple-600" />
-                      🔒 Lock post
-                    </label>
- 
-                    {postIsLocked && (
-                      <div className="flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1.5 text-sm">
-                        <span className="text-purple-900">Price (₹)</span>
-                        <input
-                          type="number"
-                          min="1"
-                          value={postLockedPrice}
-                          onChange={(e) => setPostLockedPrice(Number(e.target.value))}
-                          className="w-20 rounded-lg border border-purple-200 bg-white px-2 py-1 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                          placeholder="0"
-                        />
-                      </div>
+
+                  {postImagePreviewUrl && postImage && (
+                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                      {postImage.type.startsWith('video/') ? (
+                        <video src={postImagePreviewUrl} controls autoPlay muted className="w-full max-h-72 rounded-lg bg-black" />
+                      ) : (
+                        <img src={postImagePreviewUrl} alt="Selected media preview" className="w-full max-h-72 object-contain rounded-lg bg-white" />
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-xl border border-gray-200 bg-white">
+                  <div className="flex items-center justify-between gap-3 border-b border-gray-200 bg-gray-50 px-3 py-2">
+                    <div className="text-sm font-medium text-gray-900">Attach a song</div>
+                    {postSong && (
+                      <button
+                        type="button"
+                        onClick={() => setPostSong('')}
+                        className="text-xs text-gray-600 hover:text-gray-900 underline underline-offset-2"
+                      >
+                        Clear
+                      </button>
                     )}
                   </div>
+                  <div className="p-3">
+                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                      {publicSongs.map((name) => {
+                        const songUrl = `/${encodeURIComponent(name)}`;
+                        return (
+                          <SongSelector
+                            key={name}
+                            songUrl={songUrl}
+                            songName={name}
+                            isSelected={postSong === songUrl}
+                            onSelect={() => setPostSong(songUrl)}
+                            postImage={postImage}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
- 
-                <div className="flex items-center justify-between gap-3 border-t border-gray-200 bg-gray-50 px-4 py-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      resetPostComposer();
-                      setIsPostComposerOpen(false);
-                    }}
-                    className="rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-100 transition"
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <label
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition cursor-pointer select-none ${postAnonymous ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                      }`}
                   >
-                    Clear
-                  </button>
-                  <button
-                    onClick={createPost}
-                    disabled={postLoading}
-                    className="rounded-full bg-gradient-to-r from-green-600 to-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                    <input type="checkbox" checked={postAnonymous} onChange={(e) => setPostAnonymous(e.target.checked)} className="h-4 w-4 accent-amber-600" />
+                    Anonymous
+                  </label>
+
+                  <label
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition cursor-pointer select-none ${postPrivate ? 'bg-blue-50 border-blue-300 text-blue-900' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                      }`}
                   >
-                    {postLoading ? 'Posting...' : 'Post'}
-                  </button>
+                    <input type="checkbox" checked={postPrivate} onChange={(e) => setPostPrivate(e.target.checked)} className="h-4 w-4 accent-blue-600" />
+                    Followers only
+                  </label>
+
+                  <label
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition cursor-pointer select-none ${postIsLocked ? 'bg-purple-50 border-purple-300 text-purple-900' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                      }`}
+                  >
+                    <input type="checkbox" checked={postIsLocked} onChange={(e) => setPostIsLocked(e.target.checked)} className="h-4 w-4 accent-purple-600" />
+                    🔒 Lock post
+                  </label>
+
+                  {postIsLocked && (
+                    <div className="flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1.5 text-sm">
+                      <span className="text-purple-900">Price (₹)</span>
+                      <input
+                        type="number"
+                        min="1"
+                        value={postLockedPrice}
+                        onChange={(e) => setPostLockedPrice(Number(e.target.value))}
+                        className="w-20 rounded-lg border border-purple-200 bg-white px-2 py-1 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        placeholder="0"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
-            )}
+
+              <div className="flex items-center justify-between gap-3 border-t border-gray-200 bg-gray-50 px-4 py-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetPostComposer();
+                    setIsPostComposerOpen(false);
+                  }}
+                  className="rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-100 transition"
+                >
+                  Clear
+                </button>
+                <button
+                  onClick={createPost}
+                  disabled={postLoading}
+                  className="rounded-full bg-gradient-to-r from-green-600 to-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                >
+                  {postLoading ? 'Posting...' : 'Post'}
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="mt-4 space-y-4">
             {/* Profile Header for Searched User */}
@@ -4341,21 +4324,13 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                     {selectedUserProfile?.about && (
                       <div className="text-sm text-red-500 mt-2 italic">{selectedUserProfile.about}</div>
                     )}
-                    {/* <div className="text-sm text-white mt-2">
-                      Status: {selectedUserProfile?.isOnline ? 'Online' : 'Offline'}
-                    </div> */}
+
                     <div className="text-sm text-grey-300">
                       Joined: {selectedUserProfile?.createdAt ? new Date(selectedUserProfile.createdAt).toLocaleDateString() : 'N/A'}
                     </div>
                   </div>
 
-                  {/* View Full Profile Button */}
-                  {/* <button
-                    onClick={() => window.location.pathname = `/profile/${selectedUserProfile?._id}`}
-                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                  >
-                    View Profile
-                  </button> */}
+
                 </div>
               </div>
             )}
@@ -4368,15 +4343,12 @@ export default function Message({ groupName }: { groupName?: string | null }) {
             )}
 
             {viewingOwnPosts && (
-              <div className="p-3 bg-purple-50 border text-black border-purple-200 rounded text-sm">
-                <strong>My Posts</strong>
-                {posts.filter((post: any) => {
-                  const postUserId = post.user?._id || post.user?.id || post.userId;
-                  return String(postUserId) === String(me?.id);
-                }).length === 0 && (
-                  <p className="text-gray-600 mt-1">You haven't posted yet</p>
-                )}
-              </div>
+              <button
+                onClick={() => setMyPostsView(false)}
+                className="mb-3 flex items-center gap-1 text-gray-400 hover:text-white text-sm transition-colors"
+              >
+                ← Back
+              </button>
             )}
 
             {filteredPosts.map((post: any) => {
@@ -4388,7 +4360,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                 <div
                   key={post._id}
                   //  className="border rounded-lg p-4 bg-white relative"
-                   className="rounded-lg p-4 bg-black relative overflow-visible" // allow kebab menu to overflow
+                  className="rounded-lg p-4 bg-black relative overflow-visible" // allow kebab menu to overflow
                   ref={registerPostCardEl(String(post._id || post.id || ''))}
                 >
                   {/* Floating Emoji Animations */}
@@ -4423,371 +4395,412 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                       }
                     }
                   `}</style>
-                  
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
-                    {/* <div className="font-semibold text-blue-500"><h1>{post.user?.name || 'Unknown'} ---------</h1></div> */}
-                    <div className='flex items-center gap-2'>
-                      <div
-                        className={`relative w-9 h-9 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden border border-blue-500 flex-shrink-0 ${
-                          !isAnonymousPost && post.user?.profilePicture ? 'cursor-pointer hover:opacity-90' : ''
-                        }`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (!isAnonymousPost && post.user?.profilePicture) {
-                            setZoomedProfilePicSrc(resolveMediaUrl(post.user.profilePicture));
-                          }
-                        }}
-                        title={!isAnonymousPost && post.user?.profilePicture ? 'View profile picture' : undefined}
-                      >
-                        <img
-                          src={
-                            !isAnonymousPost && post.user?.profilePicture
-                              ? resolveMediaUrl(post.user.profilePicture)
-                              : defaultInfinityLogo
-                          }
-                          alt="avatar"
-                          className="absolute inset-0 w-full h-full object-cover"
-                          onError={(e) => {
-                            (e.currentTarget as HTMLImageElement).src = defaultInfinityLogo;
+
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      {/* <div className="font-semibold text-blue-500"><h1>{post.user?.name || 'Unknown'} ---------</h1></div> */}
+                      <div className='flex items-center gap-2'>
+                        <div
+                          className={`relative w-9 h-9 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden border border-blue-500 flex-shrink-0 ${!isAnonymousPost && post.user?.profilePicture ? 'cursor-pointer hover:opacity-90' : ''
+                            }`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!isAnonymousPost && post.user?.profilePicture) {
+                              setZoomedProfilePicSrc(resolveMediaUrl(post.user.profilePicture));
+                            }
                           }}
-                          loading="lazy"
-                        />
-                      </div>
-                      {isAnonymousPost ? (
-                        <span className='text-red-600 font-semibold'>⚠️ Anonymous</span>
-                      ) : (
-                        <h1
-                          className='text-blue-500 cursor-pointer hover:underline'
-                          onClick={() => {
-                            const uname = String(post.user?.username || '').trim();
-                            const uid = String(post.user?._id || post.user?.id || '').trim();
-                            openUserPosts(uname, uid || undefined);
-                            try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
-                          }}
+                          title={!isAnonymousPost && post.user?.profilePicture ? 'View profile picture' : undefined}
                         >
-                          @{post.user?.username || 'unknown'}
-                        </h1>
-                      )}
-                      {/* <h2 className="text-sm text-gray-500 py-1" >{post.createdAt ? formatDistanceToNow(new Date(post.createdAt), { addSuffix: true }) : 'No date'}</h2> */}
-                      {showFollowButton && (
-                        <button 
-                          onClick={() => toggleFollowUser(postUserId)}
-                          disabled={loadingFollows[postUserId]}
-                          className={`px-1.5 py-0.5 rounded-md text-xs leading-4 whitespace-nowrap text-white transition ${
-                            followedUsers.has(postUserId) 
-                              ? ' border border-red-700' 
+                          <img
+                            src={
+                              !isAnonymousPost && post.user?.profilePicture
+                                ? resolveMediaUrl(post.user.profilePicture)
+                                : defaultInfinityLogo
+                            }
+                            alt="avatar"
+                            className="absolute inset-0 w-full h-full object-cover"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLImageElement).src = defaultInfinityLogo;
+                            }}
+                            loading="lazy"
+                          />
+                        </div>
+                        {isAnonymousPost ? (
+                          <span className='text-red-600 font-semibold'>⚠️ Anonymous</span>
+                        ) : (
+                          <h1
+                            className='text-blue-500 cursor-pointer hover:underline'
+                            onClick={() => {
+                              const uname = String(post.user?.username || '').trim();
+                              const uid = String(post.user?._id || post.user?.id || '').trim();
+                              openUserPosts(uname, uid || undefined);
+                              try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch { }
+                            }}
+                          >
+                            @{post.user?.username || 'unknown'}
+                          </h1>
+                        )}
+                        {/* <h2 className="text-sm text-gray-500 py-1" >{post.createdAt ? formatDistanceToNow(new Date(post.createdAt), { addSuffix: true }) : 'No date'}</h2> */}
+                        {showFollowButton && (
+                          <button
+                            onClick={() => toggleFollowUser(postUserId)}
+                            disabled={loadingFollows[postUserId]}
+                            className={`px-1.5 py-0.5 rounded-md text-xs leading-4 whitespace-nowrap text-white transition ${followedUsers.has(postUserId)
+                              ? ' border border-red-700'
                               : ' border border-blue-700'
-                          } disabled:opacity-50 disabled:cursor-not-allowed`}
+                              } disabled:opacity-50 disabled:cursor-not-allowed`}
+                          >
+                            {loadingFollows[postUserId] ? '...' : (
+                              followedUsers.has(postUserId) ? 'following' : 'Follow'
+                            )}
+                          </button>
+                        )}
+                      </div>
+                      <div className="text-sm text-gray-500">{post.createdAt ? formatDistanceToNow(new Date(post.createdAt), { addSuffix: true }) : 'No date'}</div>
+                      <p className="mt-0 text-white">{post.content}</p>
+                    </div>
+                    <div className="flex items-center gap-2 relative z-20">
+                      {post.songUrl && (
+                        <button
+                          onClick={() => togglePostMute(post._id || post.id)}
+                          className="px-2 py-1 text-gray-500 hover:text-gray-700 z-20 relative"
+                          title={postMuted[post._id || post.id] ? 'Unmute' : 'Mute'}
                         >
-                          {loadingFollows[postUserId] ? '...' : (
-                            followedUsers.has(postUserId) ? 'following' : 'Follow'
-                          )}
+                          {postMuted[post._id || post.id] ? '🔇' : '🔊'}
                         </button>
                       )}
-                    </div>
-                    <div className="text-sm text-gray-500">{post.createdAt ? formatDistanceToNow(new Date(post.createdAt), { addSuffix: true }) : 'No date'}</div>
-                    <p className="mt-0 text-white">{post.content}</p>
-                  </div>
-                  <div className="flex items-center gap-2 relative z-20">
-                    {post.songUrl && (
-                      <button
-                        onClick={() => togglePostMute(post._id || post.id)}
-                        className="px-2 py-1 text-gray-500 hover:text-gray-700 z-20 relative"
-                        title={postMuted[post._id || post.id] ? 'Unmute' : 'Mute'}
-                      >
-                        {postMuted[post._id || post.id] ? '🔇' : '🔊'}
-                      </button>
-                    )}
-                    <button onClick={() => setMenuOpen(menuOpen === post._id ? null : post._id)} className="px-2 py-1 text-gray-500 hover:text-gray-700 z-20 relative">⋮</button>
-                    {menuOpen === post._id && (
-                      <div className="absolute right-0 mt-1 w-36 bg-white border rounded shadow z-50">
-                        {String(post.user?._id || post.user?.id) === String(myId) ? (
-                          <button onClick={() => {
-                            deletePost(post._id);
-                            setMenuOpen(null);
-                          }} className="block w-full text-left px-3 py-2 hover:bg-gray-100 text-red-600">
-                            Delete
-                          </button>
-                        ) : (
-                          <>
-                            <button
-                              onClick={() => {
-                                openReportDialog({
-                                  type: 'post',
-                                  postId: String(post._id || post.id),
-                                  userId: String(post.user?._id || post.user?.id || ''),
-                                  username: String(post.user?.username || ''),
-                                });
-                                setMenuOpen(null);
-                              }}
-                              className="block w-full text-left px-3 py-2 hover:bg-gray-100 text-red-700"
-                            >
-                              Report Post
+                      <button onClick={() => setMenuOpen(menuOpen === post._id ? null : post._id)} className="px-2 py-1 text-gray-500 hover:text-gray-700 z-20 relative">⋮</button>
+                      {menuOpen === post._id && (
+                        <div className="absolute right-0 mt-1 w-36 bg-white border rounded shadow z-50">
+                          {String(post.user?._id || post.user?.id) === String(myId) ? (
+                            <button onClick={() => {
+                              deletePost(post._id);
+                              setMenuOpen(null);
+                            }} className="block w-full text-left px-3 py-2 hover:bg-gray-100 text-red-600">
+                              Delete
                             </button>
-                             {!isAnonymousPost && String(post.user?._id || post.user?.id || '') && (
-                               <button
-                                 onClick={() => {
-                                   openReportDialog({
-                                     type: 'user',
-                                     userId: String(post.user?._id || post.user?.id),
-                                     username: String(post.user?.username || ''),
-                                   });
-                                   setMenuOpen(null);
-                                 }}
-                                 className="block w-full text-left px-3 py-2 hover:bg-gray-100 text-red-700"
-                               >
-                                 Report User
-                               </button>
-                             )}
-                             {!isAnonymousPost && postUserId && (
-                               <button
-                                 onClick={async () => {
-                                   try {
-                                     if (blockedUsers.has(postUserId)) {
-                                       await handleUnblockUser(postUserId);
-                                     } else {
-                                       await handleBlockUser(postUserId);
-                                     }
-                                   } finally {
-                                     setMenuOpen(null);
-                                   }
-                                 }}
-                                 className="block w-full text-left px-3 py-2 hover:bg-gray-100 text-gray-900"
-                               >
-                                 {blockedUsers.has(postUserId) ? 'Unblock User' : 'Block User'}
-                               </button>
-                             )}
-                           </>
-                         )}
-                       </div>
-                     )}
-                  </div>
-                </div>
-
-                {post.imageUrl && (
-                  <div className="mt-2 shadow-lg rounded-lg overflow-hidden relative">
-                    {(() => {
-                      const pid = String(post._id || post.id || '');
-                      const baseUrl = resolveMediaUrl(post.imageUrl);
-                      const retry = postMediaRetry[pid];
-                      const src = retry
-                        ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}v=${retry}`
-                        : baseUrl;
-                      const isVideo = src.match(/\.(mp4|webm|ogg|mov|m4v)(\?|$)/i);
-                      const isLocked = post.isContentLocked;
-
-                      return (
-                        <div className={`${isLocked ? 'blur-3xl' : ''}`}>
-                          {isVideo ? (
-                            <AutoPlayOnScreenVideo
-                              src={src}
-                              className={`w-full h-auto max-h-[60vh] object-contain ${!isLocked ? 'cursor-zoom-in' : ''}`}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                if (!isLocked) setZoomedPostMedia({ src, kind: 'video' });
-                              }}
-                              onError={() => {
-                                if (!retry) setPostMediaRetry((prev) => ({ ...prev, [pid]: Date.now() }));
-                              }}
-                            />
                           ) : (
-                            <img
-                              src={src}
-                              alt="Post"
-                              className={`w-full h-auto max-h-[60vh] object-contain ${!isLocked ? 'cursor-zoom-in' : ''}`}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                if (!isLocked) setZoomedPostMedia({ src, kind: 'image' });
-                              }}
-                              onError={() => {
-                                if (!retry) setPostMediaRetry((prev) => ({ ...prev, [pid]: Date.now() }));
-                              }}
-                            />
+                            <>
+                              <button
+                                onClick={() => {
+                                  openReportDialog({
+                                    type: 'post',
+                                    postId: String(post._id || post.id),
+                                    userId: String(post.user?._id || post.user?.id || ''),
+                                    username: String(post.user?.username || ''),
+                                  });
+                                  setMenuOpen(null);
+                                }}
+                                className="block w-full text-left px-3 py-2 hover:bg-gray-100 text-red-700"
+                              >
+                                Report Post
+                              </button>
+                              {!isAnonymousPost && String(post.user?._id || post.user?.id || '') && (
+                                <button
+                                  onClick={() => {
+                                    openReportDialog({
+                                      type: 'user',
+                                      userId: String(post.user?._id || post.user?.id),
+                                      username: String(post.user?.username || ''),
+                                    });
+                                    setMenuOpen(null);
+                                  }}
+                                  className="block w-full text-left px-3 py-2 hover:bg-gray-100 text-red-700"
+                                >
+                                  Report User
+                                </button>
+                              )}
+                              {!isAnonymousPost && postUserId && (
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      if (blockedUsers.has(postUserId)) {
+                                        await handleUnblockUser(postUserId);
+                                      } else {
+                                        await handleBlockUser(postUserId);
+                                      }
+                                    } finally {
+                                      setMenuOpen(null);
+                                    }
+                                  }}
+                                  className="block w-full text-left px-3 py-2 hover:bg-gray-100 text-gray-900"
+                                >
+                                  {blockedUsers.has(postUserId) ? 'Unblock User' : 'Block User'}
+                                </button>
+                              )}
+                            </>
                           )}
                         </div>
-                      );
-                    })()}
-                    <button
-                      onClick={() => {
-                        setShowComments(prev => ({ ...prev, [post._id]: !prev[post._id] }));
-                      }}
-                      className="absolute bottom-2 right-2 text-white text-2xl bg-green-500 bg-opacity-75 rounded-full p-1 border border-white z-10 shadow-xl cursor-pointer hover:bg-opacity-90"
-                      title="View/Add comments"
-                    >
-                      💬
-                    </button>
-                    {post.isLocked && (
-                      <div className="absolute top-2 right-2 text-yellow-300 text-2xl bg-gray-800 bg-opacity-75 rounded-full p-2 border border-yellow-300 z-10 shadow-xl">
-                        🔒
-                      </div>
-                    )}
-
-                    {/* Lock overlay only on media (keep username/profile visible) */}
-                    {post.isContentLocked && (
-                      <div className="absolute inset-0 z-30">
-                        <div className="absolute inset-0 bg-black/70 backdrop-blur-[1px]" />
-                        <div className="relative h-full w-full flex items-center justify-center p-4">
-                          <div className="w-full max-w-sm p-4 bg-yellow-100 border border-yellow-400 rounded text-center shadow-xl">
-                            <p className="text-gray-800 font-semibold mb-3">🔒 This post is locked</p>
-                            <p className="text-gray-700 mb-3 text-sm">Pay ₹{post.lockedPrice} to unlock this post</p>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                handleUnlockPost(post._id);
-                              }}
-                              disabled={unlockInitiating}
-                              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              {unlockInitiating ? 'Please wait...' : '💳 Pay to Unlock'}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-                <div className="mt-3 flex items-center gap-2 flex-nowrap overflow-x-auto bg-black">
-                  {(() => {
-                    const userEmoji = post.userReactions?.[me?.id];
-                    const hasReacted = !!userEmoji;
-                    
-                    return (
-                      <>
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          <button 
-                            onClick={() => handleEmojiReaction(post._id, '❤️')} 
-                            disabled={hasReacted && userEmoji !== '❤️'}
-                            className={`px-2 py-1 rounded text-2xl transition ${
-                              userEmoji === '❤️' ? 'bg-red-200' : 'hover:bg-red-100'
-                            } ${hasReacted && userEmoji !== '❤️' ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          >
-                            ❤️
-                          </button>
-                          <div className=" rounded px-1 py-1 min-w-[10px] text-center text-lg font-semibold flex-shrink-0">
-                            {post.reactions?.['❤️'] || 0}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          <button 
-                            onClick={() => handleEmojiReaction(post._id, '😂')} 
-                            disabled={hasReacted && userEmoji !== '😂'}
-                            className={`px-2 py-1 rounded text-2xl transition ${
-                              userEmoji === '😂' ? 'bg-yellow-200' : 'hover:bg-yellow-100'
-                            } ${hasReacted && userEmoji !== '😂' ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          >
-                            😂
-                          </button>
-                          <div className=" rounded px-2 py-1 min-w-[10px] text-center text-xl font-semibold flex-shrink-0">
-                            {post.reactions?.['😂'] || 0}
-                          </div>
-                        </div>
-                        {/* <div className="flex items-center gap-1 flex-shrink-0">
-                          <button 
-                            onClick={() => handleEmojiReaction(post._id, '😐')} 
-                            disabled={hasReacted && userEmoji !== '😐'}
-                            className={`px-2 py-1 rounded text-2xl transition ${
-                              userEmoji === '😐' ? 'bg-blue-200' : 'hover:bg-blue-100'
-                            } ${hasReacted && userEmoji !== '😐' ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          >
-                            😐
-                          </button>
-                          <div className="bg-gray-200 rounded px-2 py-1 min-w-[30px] text-center text-sm font-semibold flex-shrink-0">
-                            {post.reactions?.['😐'] || 0}
-                          </div>
-                        </div> */}
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          <button 
-                            onClick={() => handleEmojiReaction(post._id, '😢')} 
-                            disabled={hasReacted && userEmoji !== '😢'}
-                            className={`px-2 py-1 rounded text-2xl transition ${
-                              userEmoji === '😢' ? 'bg-blue-300' : 'hover:bg-blue-200'
-                            } ${hasReacted && userEmoji !== '😢' ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          >
-                            😢
-                          </button>
-                          <div className=" rounded px-2 py-1 min-w-[10px] text-center text-xl font-semibold flex-shrink-0">
-                            {post.reactions?.['😢'] || 0}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          <button 
-                            onClick={() => handleEmojiReaction(post._id, '😠')} 
-                            disabled={hasReacted && userEmoji !== '😠'}
-                            className={`px-2 py-1 rounded text-2xl transition ${
-                              userEmoji === '😠' ? 'bg-red-300' : 'hover:bg-red-200'
-                            } ${hasReacted && userEmoji !== '😠' ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          >
-                            😠
-                          </button>
-                          <div className=" rounded px-2 py-1 min-w-[10px] text-center text-xl font-semibold flex-shrink-0">
-                            {post.reactions?.['😠'] || 0}
-                          </div>
-                        </div>
-                        
-                      </>
-                    );
-                  })()}
-                </div>
-
-                {showComments[post._id] && (
-                  <div className="mt-4 pt-4 border-t border-gray-200 bg-gray-50 rounded p-3">
-                    <h4 className="font-semibold text-black mb-3">Comments ({post.comments?.length || 0})</h4>
-                    
-                    <div className="space-y-2 mb-4 max-h-48 overflow-y-auto">
-                      {!post.comments || post.comments.length === 0 ? (
-                        <p className="text-gray-400 text-sm">No comments yet</p>
-                      ) : (
-                        post.comments.map((comment: any, idx: number) => (
-                          <div key={idx} className="bg-white rounded p-2 text-sm">
-                            <div className="flex gap-2">
-                              <div className="w-6 h-6 bg-gray-300 rounded-full flex items-center justify-center flex-shrink-0">
-                                <span className="text-gray-600 font-semibold text-xs">
-                                  {(comment.user?.name || 'U').charAt(0).toUpperCase()}
-                                </span>
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="font-semibold text-xs text-black">
-                                  {comment.user?.name}
-                                  <span className="text-gray-500 font-normal ml-1">@{comment.user?.username}</span>
-                                </p>
-                                <p className="text-gray-700 text-xs break-words">{comment.content}</p>
-                                <p className="text-gray-400 text-xs mt-1">
-                                  {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true })}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        ))
                       )}
                     </div>
-
-                    {/* Comment input */}
-                    <div className="flex gap-2 border-t pt-3">
-                      <input
-                        type="text"
-                        value={commentText[post._id] || ''}
-                        onChange={(e) => setCommentText(prev => ({ ...prev, [post._id]: e.target.value }))}
-                        onKeyPress={(e) => e.key === 'Enter' && handleAddComment(post._id)}
-                        placeholder="Write a comment..."
-                        className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs text-black placeholder-gray-400 focus:outline-none focus:border-blue-500"
-                        disabled={submittingComment[post._id] || false}
-                      />
-                      <button
-                        onClick={() => handleAddComment(post._id)}
-                        disabled={submittingComment[post._id] || !commentText[post._id]?.trim()}
-                        className="px-3 py-1 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-                      >
-                        {submittingComment[post._id] ? '...' : 'Post'}
-                      </button>
-                    </div>
                   </div>
-                )}
-              </div>
+
+                  {post.imageUrl && (
+                    <div className="mt-2 shadow-lg rounded-none sm:rounded-lg overflow-hidden relative -mx-4 sm:mx-0">
+                      {(() => {
+                        const pid = String(post._id || post.id || '');
+                        const baseUrl = resolveMediaUrl(post.imageUrl);
+                        const retry = postMediaRetry[pid];
+                        const src = retry
+                          ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}v=${retry}`
+                          : baseUrl;
+                        const isVideo = src.match(/\.(mp4|webm|ogg|mov|m4v)(\?|$)/i);
+                        const isLocked = post.isContentLocked;
+
+                        return (
+                          <div className={`${isLocked ? 'blur-3xl' : ''}`}>
+                            {isVideo ? (
+                              <AutoPlayOnScreenVideo
+                                src={src}
+                                className={`w-full h-auto max-h-[75vh] sm:max-h-[60vh] object-cover sm:object-contain ${!isLocked ? 'cursor-zoom-in' : ''}`}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  if (!isLocked) setZoomedPostMedia({ src, kind: 'video' });
+                                }}
+                                onError={() => {
+                                  if (!retry) setPostMediaRetry((prev) => ({ ...prev, [pid]: Date.now() }));
+                                }}
+                              />
+                            ) : (
+                              <img
+                                src={src}
+                                alt="Post"
+                                className={`w-full h-auto max-h-[75vh] sm:max-h-[60vh] object-cover sm:object-contain ${!isLocked ? 'cursor-zoom-in' : ''}`}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  if (!isLocked) setZoomedPostMedia({ src, kind: 'image' });
+                                }}
+                                onError={() => {
+                                  if (!retry) setPostMediaRetry((prev) => ({ ...prev, [pid]: Date.now() }));
+                                }}
+                              />
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* Reels-style floating reactions on media (horizontal left) */}
+                      <div className="absolute bottom-2 left-2 sm:bottom-4 sm:left-4 flex items-center gap-3 z-20 bg-black/40 px-3 py-1.5 rounded-full backdrop-blur-sm">
+                        {(() => {
+                          const userEmoji = post.userReactions?.[me?.id];
+                          const hasReacted = !!userEmoji;
+
+                          return (
+                            <>
+                              <div className="flex items-center gap-1.5 flex-shrink-0 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleEmojiReaction(post._id, '♡'); }}>
+                                <button
+                                  disabled={hasReacted && userEmoji !== '♡'}
+                                  className={`text-2xl transition ${userEmoji === '♡' ? 'text-red-500' : 'text-white hover:text-gray-300'
+                                    } ${hasReacted && userEmoji !== '♡' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                >
+                                  ♡
+                                </button>
+                                <span className="text-white text-sm font-semibold drop-shadow-md">
+                                  {post.reactions?.['♡'] || 0}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5 flex-shrink-0 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleEmojiReaction(post._id, '☺'); }}>
+                                <button
+                                  disabled={hasReacted && userEmoji !== '☺'}
+                                  className={`text-2xl transition ${userEmoji === '☺' ? 'text-yellow-400' : 'text-white hover:text-gray-300'
+                                    } ${hasReacted && userEmoji !== '☺' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                >
+                                  {"☺\uFE0E"}
+                                </button>
+                                <span className="text-white text-sm font-semibold drop-shadow-md">
+                                  {post.reactions?.['☺'] || 0}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5 flex-shrink-0 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleEmojiReaction(post._id, '☹'); }}>
+                                <button
+                                  disabled={hasReacted && userEmoji !== '☹'}
+                                  className={`text-xl transition ${userEmoji === '☹' ? 'text-blue-400' : 'text-white hover:text-gray-300'
+                                    } ${hasReacted && userEmoji !== '☹' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                >
+                                  {"☹\uFE0E"}
+                                </button>
+                                <span className="text-white text-sm font-semibold drop-shadow-md">
+                                  {post.reactions?.['☹'] || 0}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5 flex-shrink-0 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleEmojiReaction(post._id, '>_<'); }}>
+                                <button
+                                  disabled={hasReacted && userEmoji !== '>_<'}
+                                  className={`text-xl transition ${userEmoji === '>_<' ? 'text-red-500' : 'text-white hover:text-gray-300'
+                                    } ${hasReacted && userEmoji !== '>_<' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                >
+                                  &gt;_&lt;
+                                </button>
+                                <span className="text-white text-sm font-semibold drop-shadow-md">
+                                  {post.reactions?.['>_<'] || 0}
+                                </span>
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowComments(prev => ({ ...prev, [post._id]: !prev[post._id] }));
+                        }}
+                        className="absolute bottom-2 right-2 text-white text-2xl bg-green-500 bg-opacity-75 rounded-full p-1 border border-white z-10 shadow-xl cursor-pointer hover:bg-opacity-90"
+                        title="View/Add comments"
+                      >
+                        💬
+                      </button>
+                      {post.isLocked && (
+                        <div className="absolute top-2 right-2 text-yellow-300 text-2xl bg-gray-800 bg-opacity-75 rounded-full p-2 border border-yellow-300 z-10 shadow-xl">
+                          🔒
+                        </div>
+                      )}
+
+                      {/* Lock overlay only on media (keep username/profile visible) */}
+                      {post.isContentLocked && (
+                        <div className="absolute inset-0 z-30">
+                          <div className="absolute inset-0 bg-black/70 backdrop-blur-[1px]" />
+                          <div className="relative h-full w-full flex items-center justify-center p-4">
+                            <div className="w-full max-w-sm p-4 bg-yellow-100 border border-yellow-400 rounded text-center shadow-xl">
+                              <p className="text-gray-800 font-semibold mb-3">🔒 This post is locked</p>
+                              <p className="text-gray-700 mb-3 text-sm">Pay ₹{post.lockedPrice} to unlock this post</p>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleUnlockPost(post._id);
+                                }}
+                                disabled={unlockInitiating}
+                                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {unlockInitiating ? 'Please wait...' : '💳 Pay to Unlock'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {!post.imageUrl && (
+                    <div className="mt-3 flex items-center gap-4 flex-nowrap overflow-x-auto bg-black px-2 sm:px-0">
+                      {(() => {
+                        const userEmoji = post.userReactions?.[me?.id];
+                        const hasReacted = !!userEmoji;
+
+                        return (
+                          <>
+                            <div className="flex items-center gap-1.5 flex-shrink-0 cursor-pointer" onClick={() => handleEmojiReaction(post._id, '♡')}>
+                              <button
+                                disabled={hasReacted && userEmoji !== '♡'}
+                                className={`text-3xl transition ${userEmoji === '♡' ? 'text-red-500' : 'text-white hover:text-gray-300'
+                                  } ${hasReacted && userEmoji !== '♡' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              >
+                                ♡
+                              </button>
+                              <span className="text-white text-base font-semibold drop-shadow-md">
+                                {post.reactions?.['♡'] || 0}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 flex-shrink-0 cursor-pointer" onClick={() => handleEmojiReaction(post._id, '☺')}>
+                              <button
+                                disabled={hasReacted && userEmoji !== '☺'}
+                                className={`text-3xl transition ${userEmoji === '☺' ? 'text-yellow-400' : 'text-white hover:text-gray-300'
+                                  } ${hasReacted && userEmoji !== '☺' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              >
+                                {"☺\uFE0E"}
+                              </button>
+                              <span className="text-white text-base font-semibold drop-shadow-md">
+                                {post.reactions?.['☺'] || 0}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 flex-shrink-0 cursor-pointer" onClick={() => handleEmojiReaction(post._id, '☹')}>
+                              <button
+                                disabled={hasReacted && userEmoji !== '☹'}
+                                className={`text-2xl transition ${userEmoji === '☹' ? 'text-blue-400' : 'text-white hover:text-gray-300'
+                                  } ${hasReacted && userEmoji !== '☹' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              >
+                                {"☹\uFE0E"}
+                              </button>
+                              <span className="text-white text-base font-semibold drop-shadow-md">
+                                {post.reactions?.['☹'] || 0}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 flex-shrink-0 cursor-pointer" onClick={() => handleEmojiReaction(post._id, '>_<')}>
+                              <button
+                                disabled={hasReacted && userEmoji !== '>_<'}
+                                className={`text-2xl transition ${userEmoji === '>_<' ? 'text-red-500' : 'text-white hover:text-gray-300'
+                                  } ${hasReacted && userEmoji !== '>_<' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              >
+                                &gt;_&lt;
+                              </button>
+                              <span className="text-white text-base font-semibold drop-shadow-md">
+                                {post.reactions?.['>_<'] || 0}
+                              </span>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  {showComments[post._id] && (
+                    <div className="mt-2 pt-4 border-t border-gray-200 bg-gray-50 p-4 -mx-4 sm:mx-0 sm:p-3 rounded-none sm:rounded-lg">
+                      <h4 className="font-semibold text-black mb-3">Comments ({post.comments?.length || 0})</h4>
+
+                      <div className="space-y-2 mb-4 max-h-48 overflow-y-auto">
+                        {!post.comments || post.comments.length === 0 ? (
+                          <p className="text-gray-400 text-sm">No comments yet</p>
+                        ) : (
+                          post.comments.map((comment: any, idx: number) => (
+                            <div key={idx} className="bg-white rounded p-2 text-sm">
+                              <div className="flex gap-2">
+                                <div className="w-6 h-6 bg-gray-300 rounded-full flex items-center justify-center flex-shrink-0">
+                                  <span className="text-gray-600 font-semibold text-xs">
+                                    {(comment.user?.name || 'U').charAt(0).toUpperCase()}
+                                  </span>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-semibold text-xs text-black">
+                                    {/* {comment.user?.name} */}
+                                    <span className="text-gray-500 font-normal ml-1">@{comment.user?.username}</span>
+                                  </p>
+                                  <p className="text-gray-700 text-xs break-words">{comment.content}</p>
+                                  <p className="text-gray-400 text-xs mt-1">
+                                    {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true })}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      {/* Comment input */}
+                      <div className="flex gap-2 border-t pt-3">
+                        <input
+                          type="text"
+                          value={commentText[post._id] || ''}
+                          onChange={(e) => setCommentText(prev => ({ ...prev, [post._id]: e.target.value }))}
+                          onKeyPress={(e) => e.key === 'Enter' && handleAddComment(post._id)}
+                          placeholder="Write a comment..."
+                          className="flex-1 px-4 py-2 border border-gray-300 rounded text-s text-black placeholder-gray-400 focus:outline-none focus:border-blue-500"
+                          disabled={submittingComment[post._id] || false}
+                        />
+                        <button
+                          onClick={() => handleAddComment(post._id)}
+                          disabled={submittingComment[post._id] || !commentText[post._id]?.trim()}
+                          className="px-3 py-1 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                        >
+                          {submittingComment[post._id] ? '...' : 'Post'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -4796,6 +4809,33 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
       {mode === 'random' && (
         <div>
+          {/* Chat Mode Toggle */}
+          <div className="flex items-center gap-1 bg-gray-800/60 rounded-full p-1 mb-4">
+            <button
+              onClick={() => { if (isPrivateChatPage) history.pushState(null, '', `/message`); setMode('private'); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
+                mode === 'private' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              👤 Private
+            </button>
+            <button
+              onClick={() => { if (isPrivateChatPage) history.pushState(null, '', `/message`); setMode('groups'); setShowCreateGroup(false); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
+                mode === 'groups' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              👥 Group
+            </button>
+            <button
+              onClick={() => { if (isPrivateChatPage) history.pushState(null, '', `/message`); setMode('random'); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
+                mode === 'random' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              🕵️ Random
+            </button>
+          </div>
           <h2 className="text-lg font-semibold">Random Chat 🕵️‍♂️</h2>
           <p className="text-sm text-gray-600 mt-2">Meet random online users nearby and start a conversation!</p>
 
@@ -4817,11 +4857,11 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                 <div className="w-32 h-32 bg-gradient-to-br from-blue-400 to-purple-400 rounded-full flex items-center justify-center text-white text-5xl font-bold mb-4">
                   {(currentRandomUser.name || currentRandomUser.username || 'U').charAt(0).toUpperCase()}
                 </div>
-                
+
                 <div className="text-center mb-4">
                   <h3 className="text-2xl font-bold text-black">{currentRandomUser.name || currentRandomUser.username}</h3>
                   <p className="text-sm text-gray-600 mt-1">@{currentRandomUser.username}</p>
-                  
+
                   <div className="mt-3 flex items-center justify-center gap-2">
                     <span className="inline-block w-3 h-3 bg-green-500 rounded-full animate-pulse"></span>
                     <span className="text-sm font-medium text-green-600">Online Now</span>
@@ -4958,173 +4998,156 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
       {showMyProfileModal && (
         <div
-          className="fixed inset-0 z-[9998] bg-black/70 flex items-center justify-center p-4"
+          className="fixed inset-0 z-[9998] flex items-end sm:items-center justify-center p-0 sm:p-4"
+          style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)' }}
           onClick={() => setShowMyProfileModal(false)}
           role="dialog"
           aria-modal="true"
         >
           <div
-            className="w-full max-w-lg bg-white rounded-lg shadow-2xl p-4"
             onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: '440px',
+              borderRadius: '24px 24px 0 0',
+              background: 'linear-gradient(160deg,#0f0c29 0%,#1e1040 60%,#0f0c29 100%)',
+              border: '1px solid rgba(139,92,246,0.25)',
+              boxShadow: '0 -8px 60px rgba(109,40,217,0.25)',
+              overflow: 'hidden',
+              paddingBottom: '8px',
+            }}
+            className="sm:rounded-2xl"
           >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="text-lg font-semibold text-black">My Profile</div>
-                <div className="text-xs text-gray-500">Press Esc to close</div>
-              </div>
-              <div className="flex items-center gap-2">
+            {/* Handle bar */}
+            <div style={{ display:'flex', justifyContent:'center', paddingTop:'12px', marginBottom:'4px' }}>
+              <div style={{ width:'36px', height:'4px', borderRadius:'2px', background:'rgba(255,255,255,0.15)' }} />
+            </div>
+
+            {/* Header row */}
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 20px 0' }}>
+              <span style={{ color:'#c4b5fd', fontWeight:700, fontSize:'16px', letterSpacing:'0.02em' }}>My Profile</span>
+              <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+                {/* Payments */}
                 <button
-                  className="w-10 h-10 rounded-full bg-yellow-500 text-white hover:bg-yellow-600 flex items-center justify-center"
-                  onClick={() => {
-                    setShowMyProfileModal(false);
-                    window.location.pathname = '/message/payment';
-                  }}
+                  onClick={() => { setShowMyProfileModal(false); window.location.pathname = '/message/payment'; }}
                   aria-label="Payments"
                   title="Payments"
                   type="button"
+                  style={{ width:'34px', height:'34px', borderRadius:'50%', border:'1px solid rgba(234,179,8,0.4)', background:'rgba(234,179,8,0.12)', color:'#fbbf24', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', fontSize:'15px' }}
                 >
-                  <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" aria-hidden="true">
-                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
-                    <circle cx="12" cy="12" r="6.5" stroke="currentColor" strokeWidth="1.5" opacity="0.8" />
-                    <path
-                      d="M9.2 10.3c.3-1.2 1.4-2 2.8-2 1.6 0 2.8 1 2.8 2.4 0 1.3-1 2.1-2.6 2.3l-1.1.2c-1.1.2-1.9.7-1.9 1.7 0 1.1 1 1.9 2.5 1.9 1.3 0 2.3-.6 2.7-1.6"
-                      stroke="currentColor"
-                      strokeWidth="1.7"
-                      strokeLinecap="round"
-                    />
-                  </svg>
+                  ₹
                 </button>
+                {/* Close */}
                 <button
-                  className="w-10 h-10 rounded-full bg-gray-100 text-black hover:bg-gray-200 flex items-center justify-center text-xl"
                   onClick={() => setShowMyProfileModal(false)}
                   aria-label="Close"
                   type="button"
+                  style={{ width:'34px', height:'34px', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.1)', background:'rgba(255,255,255,0.06)', color:'#9ca3af', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', fontSize:'20px', lineHeight:1 }}
                 >
                   ×
                 </button>
               </div>
             </div>
 
+            {/* Divider */}
+            <div style={{ margin:'12px 0 0', borderTop:'1px solid rgba(139,92,246,0.15)' }} />
+
             {myProfileLoading ? (
-              <div className="mt-4 text-gray-700">Loading...</div>
+              <div style={{ padding:'32px', textAlign:'center', color:'#a78bfa', fontSize:'14px' }}>Loading…</div>
             ) : myProfileError ? (
-              <div className="mt-4 text-red-600 text-sm">{myProfileError}</div>
+              <div style={{ padding:'16px 20px', color:'#f87171', fontSize:'13px' }}>{myProfileError}</div>
             ) : (
-              <div className="mt-4">
-                <div className="flex items-center gap-3">
+              <div style={{ padding:'20px' }}>
+
+                {/* Avatar + basic info */}
+                <div style={{ display:'flex', alignItems:'center', gap:'16px', marginBottom:'20px' }}>
+                  {/* Avatar */}
                   <div
-                    className={`relative w-16 h-16 rounded-full bg-gray-300 flex items-center justify-center overflow-hidden border border-gray-400 flex-shrink-0 ${
-                      myProfile?.profilePicture ? 'cursor-pointer hover:opacity-90' : ''
-                    }`}
-                    onClick={() => {
-                      if (myProfile?.profilePicture) {
-                        setZoomedProfilePicSrc(resolveMediaUrl(myProfile.profilePicture));
-                      }
-                    }}
+                    style={{ position:'relative', flexShrink:0, cursor: myProfile?.profilePicture ? 'pointer' : 'default' }}
+                    onClick={() => { if (myProfile?.profilePicture) setZoomedProfilePicSrc(resolveMediaUrl(myProfile.profilePicture)); }}
                     title={myProfile?.profilePicture ? 'View profile picture' : undefined}
                   >
-                    <span className="text-xl font-bold text-gray-700">
-                      {(myProfile?.username || 'U').charAt(0).toUpperCase()}
-                    </span>
-                    {myProfile?.profilePicture && (
-                      <img
-                        src={resolveMediaUrl(myProfile.profilePicture)}
-                        alt={myProfile?.username || 'me'}
-                        className="absolute inset-0 w-full h-full object-cover"
-                        onError={(e) => {
-                          (e.currentTarget as HTMLImageElement).style.display = 'none';
-                        }}
-                        loading="lazy"
-                      />
-                    )}
+                    {/* Gradient ring */}
+                    <div style={{ width:'76px', height:'76px', borderRadius:'50%', padding:'2.5px', background:'linear-gradient(135deg,#7c3aed,#db2777,#f59e0b)', flexShrink:0 }}>
+                      <div style={{ width:'100%', height:'100%', borderRadius:'50%', background:'#1e1040', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', position:'relative' }}>
+                        <span style={{ color:'#c4b5fd', fontWeight:700, fontSize:'24px' }}>
+                          {(myProfile?.username || 'U').charAt(0).toUpperCase()}
+                        </span>
+                        {myProfile?.profilePicture && (
+                          <img
+                            src={resolveMediaUrl(myProfile.profilePicture)}
+                            alt={myProfile?.username || 'me'}
+                            style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover' }}
+                            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                            loading="lazy"
+                          />
+                        )}
+                      </div>
+                    </div>
+                    {/* Camera button */}
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        myProfilePicInputRef.current?.click();
-                      }}
-                      className="absolute bottom-0 right-0 m-0.5 w-7 h-7 rounded-full bg-blue-600 text-white shadow flex items-center justify-center hover:bg-blue-700"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); myProfilePicInputRef.current?.click(); }}
+                      style={{ position:'absolute', bottom:0, right:0, width:'26px', height:'26px', borderRadius:'50%', border:'2px solid #0f0c29', background:'linear-gradient(135deg,#7c3aed,#db2777)', color:'white', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', fontSize:'12px' }}
                       title="Change profile picture"
                       disabled={isUploadingMyProfilePic}
-                    >
-                      📷
-                    </button>
-                    <input
-                      ref={myProfilePicInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handleMyProfilePictureChange}
-                    />
+                    >📷</button>
+                    <input ref={myProfilePicInputRef} type="file" accept="image/*" className="hidden" onChange={handleMyProfilePictureChange} />
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-blue-600 font-semibold truncate">@{myProfile?.username}</div>
-                    <div className="text-gray-700 truncate">{myProfile?.name}</div>
-                    <div className="text-xs text-gray-500">
-                      Joined: {myProfile?.createdAt ? new Date(myProfile.createdAt).toLocaleDateString() : '-'}
+
+                  {/* Name / username / joined */}
+                  <div style={{ minWidth:0, flex:1 }}>
+                    <div style={{ color:'#c4b5fd', fontWeight:700, fontSize:'16px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                      @{myProfile?.username}
+                    </div>
+                    <div style={{ color:'#e5e7eb', fontSize:'14px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:'2px' }}>
+                      {myProfile?.name}
+                    </div>
+                    <div style={{ color:'#6b7280', fontSize:'11px', marginTop:'4px' }}>
+                      Joined {myProfile?.createdAt ? new Date(myProfile.createdAt).toLocaleDateString(undefined, { month:'short', year:'numeric' }) : '—'}
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-4">
-                  <div className="text-sm font-semibold text-gray-800 mb-1">Bio</div>
+                {/* Upload status */}
+                {myProfilePicError && <div style={{ color:'#f87171', fontSize:'12px', marginBottom:'12px' }}>{myProfilePicError}</div>}
+                {isUploadingMyProfilePic && <div style={{ color:'#a78bfa', fontSize:'12px', marginBottom:'12px' }}>Uploading picture…</div>}
+
+                {/* Bio */}
+                <div style={{ marginBottom:'20px' }}>
+                  <div style={{ color:'#9ca3af', fontSize:'11px', fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:'8px' }}>Bio</div>
                   <textarea
                     value={myBioDraft}
                     onChange={(e) => setMyBioDraft(e.target.value)}
                     maxLength={280}
-                    rows={4}
-                    className="w-full p-2 border rounded text-black text-sm"
-                    placeholder="Write something about you..."
+                    rows={3}
+                    style={{ width:'100%', boxSizing:'border-box', padding:'12px', borderRadius:'12px', border:'1px solid rgba(139,92,246,0.3)', background:'rgba(255,255,255,0.05)', color:'#e5e7eb', fontSize:'14px', resize:'none', outline:'none', fontFamily:'inherit', lineHeight:1.5 }}
+                    placeholder="Write something about you…"
+                    onFocus={e => e.currentTarget.style.borderColor = 'rgba(196,181,253,0.6)'}
+                    onBlur={e => e.currentTarget.style.borderColor = 'rgba(139,92,246,0.3)'}
                   />
-                  <div className="mt-2 flex items-center justify-between">
-                    <div className="text-xs text-gray-500">{String(myBioDraft || '').trim().length}/280</div>
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginTop:'8px' }}>
+                    <span style={{ color:'#6b7280', fontSize:'11px' }}>{String(myBioDraft || '').trim().length}/280</span>
                     <button
                       onClick={saveMyBio}
                       disabled={myProfileSavingBio}
-                      className="px-3 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+                      style={{ padding:'7px 18px', borderRadius:'20px', border:'none', background: myProfileSavingBio ? 'rgba(139,92,246,0.3)' : 'linear-gradient(135deg,#7c3aed,#6d28d9)', color:'white', fontSize:'13px', fontWeight:600, cursor: myProfileSavingBio ? 'not-allowed' : 'pointer', opacity: myProfileSavingBio ? 0.7 : 1 }}
                     >
-                      {myProfileSavingBio ? 'Saving...' : 'Save Bio'}
+                      {myProfileSavingBio ? 'Saving…' : 'Save Bio'}
                     </button>
                   </div>
                 </div>
 
-                {myProfilePicError && (
-                  <div className="mt-2 text-red-600 text-sm">{myProfilePicError}</div>
-                )}
-                {isUploadingMyProfilePic && (
-                  <div className="mt-2 text-blue-700 text-sm">Uploading profile picture...</div>
-                )}
+                {/* View My Posts */}
+                <button
+                  onClick={() => { setMyPostsView(!viewingOwnPosts); setShowMyProfileModal(false); }}
+                  style={{ width:'100%', padding:'13px', borderRadius:'14px', border:'1px solid rgba(139,92,246,0.4)', background: viewingOwnPosts ? 'rgba(109,40,217,0.35)' : 'rgba(139,92,246,0.12)', color:'#c4b5fd', fontWeight:600, fontSize:'14px', cursor:'pointer', letterSpacing:'0.01em', transition:'all 0.2s' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(109,40,217,0.35)'}
+                  onMouseLeave={e => e.currentTarget.style.background = viewingOwnPosts ? 'rgba(109,40,217,0.35)' : 'rgba(139,92,246,0.12)'}
+                >
+                  {viewingOwnPosts ? '✓ Viewing My Posts' : '📋 View My Posts'}
+                </button>
 
-                <div className="mt-4 flex items-center justify-between gap-3">
-                  <div className="text-sm text-gray-700">
-                    Followers: {loadingFollowersList ? '...' : followers.length} · Following:{' '}
-                    {loadingFollowersList ? '...' : following.length}
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        const next = !viewingOwnPosts;
-                        setMyPostsView(next);
-                        setShowMyProfileModal(false);
-                      }}
-                      className="px-3 py-2 bg-purple-600 text-white rounded text-sm hover:bg-purple-700"
-                      title="Toggle viewing your own posts + followers/following"
-                    >
-                      {viewingOwnPosts ? 'Hide My Posts' : 'View My Posts'}
-                    </button>
-                    <button
-                      onClick={() => {
-                        setMyPostsView(true);
-                        setShowMyProfileModal(false);
-                      }}
-                      className="px-3 py-2 bg-gray-800 text-white rounded text-sm hover:bg-gray-900"
-                      title="Open followers/following list"
-                    >
-                      Followers
-                    </button>
-                  </div>
-                </div>
               </div>
             )}
           </div>
@@ -5191,6 +5214,107 @@ export default function Message({ groupName }: { groupName?: string | null }) {
           </div>
         </div>
       )}
+
+      {/* Bottom Navigation Bar */}
+      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md md:max-w-2xl lg:max-w-4xl bg-white dark:bg-neutral-800 border-t border-gray-200 dark:border-neutral-700 px-4 pt-1 pb-0 flex items-center justify-around z-[100] shadow-[0_-2px_10px_rgba(0,0,0,0.05)] dark:shadow-none rounded-t-xl">
+        <div className="relative flex flex-col items-center">
+          <button
+            onClick={handleEnterNightMode}
+            disabled={enteringNightMode || !timeInfo?.isInEntryWindow}
+            className="absolute bottom-full mb-2 text-2xl hover:scale-110 transition-transform cursor-pointer disabled:opacity-50 animate-pulse bg-white/80 backdrop-blur rounded-full p-2 shadow-lg flex items-center justify-center z-[110]"
+            title={
+              timeInfo?.isInEntryWindow
+                ? 'Enter Night Mode'
+                : timeInfo?.message
+                  ? timeInfo.message
+                  : 'Night mode not available now'
+            }
+            aria-label="Enter Night Mode"
+          >
+            🌙
+          </button>
+          <button
+            onClick={() => {
+              if (isPrivateChatPage) history.pushState(null, '', `/message`);
+              setMode('posts');
+              setPostSearchOpen(false);
+              setPostSearchQuery('');
+              setPostSearchResults([]);
+            }}
+            className={`flex flex-col items-center justify-center p-1 text-2xl transition hover:scale-110 ${mode === 'posts' ? '' : 'opacity-50 grayscale'}`}
+            title="Home"
+          >
+            🏠
+            <span className="text-[10px] font-medium text-gray-600 dark:text-gray-300">Home</span>
+          </button>
+        </div>
+
+        <button
+          onClick={() => {
+            if (isPrivateChatPage) history.pushState(null, '', `/message`);
+            setMode('posts');
+            setPostSearchOpen(true);
+            try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch { }
+          }}
+          className={`flex flex-col items-center justify-center p-1 text-2xl transition hover:scale-110 ${(mode === 'posts' && postSearchOpen) ? '' : 'opacity-50 grayscale'}`}
+          title="Search"
+        >
+          🔍
+          <span className="text-[10px] font-medium text-gray-600 dark:text-gray-300">Search</span>
+        </button>
+
+        <button
+          onClick={() => {
+            if (isPrivateChatPage) history.pushState(null, '', `/message`);
+            if (!['groups', 'private', 'random'].includes(mode)) {
+              setMode('private');
+            }
+          }}
+          className={`flex flex-col items-center justify-center p-1 text-2xl transition hover:scale-110 ${['groups', 'private', 'random'].includes(mode) ? '' : 'opacity-50 grayscale'}`}
+          title="Chat"
+        >
+          💬
+          <span className="text-[10px] font-medium text-gray-600 dark:text-gray-300">Chat</span>
+        </button>
+
+        <button
+          onClick={() => {
+            if (isPrivateChatPage) history.pushState(null, '', `/message`);
+            setMode('status');
+          }}
+          className={`flex flex-col items-center justify-center p-1 transition hover:scale-110 ${mode === 'status' ? '' : 'opacity-50 grayscale'}`}
+          title="Status"
+        >
+          <ActiveIcon size={28} />
+          <span className="text-[10px] font-medium text-gray-600 dark:text-gray-300">Status</span>
+        </button>
+
+        <div className="flex flex-col items-center">
+          <button
+            onClick={() => openMyProfileModal()}
+            className={`h-8 w-8 rounded-full flex items-center justify-center transition overflow-hidden border-2 hover:scale-110 ${showMyProfileModal ? 'border-blue-600' : 'border-gray-300 opacity-80 hover:opacity-100'
+              }`}
+            title="My Profile"
+          >
+            {(() => {
+              const picUrl = myProfile?.profilePicture || me?.profilePicture;
+              return picUrl ? (
+                <img
+                  src={resolveMediaUrl(picUrl)}
+                  alt="Profile"
+                  className="w-full h-full object-cover"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                />
+              ) : (
+                <span className="font-bold text-sm bg-gray-200 text-gray-700 w-full h-full flex items-center justify-center">
+                  {(me?.username || me?.name || 'U').charAt(0).toUpperCase()}
+                </span>
+              );
+            })()}
+          </button>
+          <span className="text-[10px] font-medium text-gray-600 dark:text-gray-300">Profile</span>
+        </div>
+      </div>
     </div>
   );
 }
