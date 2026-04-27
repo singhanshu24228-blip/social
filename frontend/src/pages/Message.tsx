@@ -964,17 +964,6 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     currentPlayingAudioRef.current = currentPlayingAudio;
   }, [currentPlayingAudio]);
 
-  useEffect(() => {
-    // Most browsers require a user gesture before audio can autoplay.
-    const enable = () => setAudioAutoplayEnabled(true);
-    window.addEventListener('pointerdown', enable, { once: true });
-    window.addEventListener('keydown', enable, { once: true });
-    return () => {
-      window.removeEventListener('pointerdown', enable as any);
-      window.removeEventListener('keydown', enable as any);
-    };
-  }, []);
-
   const registerPostCardEl = (postId: string) => (el: HTMLDivElement | null) => {
     const pid = String(postId || '');
     if (!pid) return;
@@ -1128,7 +1117,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       })
       .catch(() => {
         if (!audioAutoplayEnabled && !didShowAutoplayHint) {
-          setMsg('Tap anywhere once to enable auto-play for songs');
+          setMsg('Tap the play or unmute button once to enable song auto-play');
           setDidShowAutoplayHint(true);
         }
         stopCurrentPostAudio();
@@ -1147,6 +1136,11 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       return;
     }
 
+    if (!audioAutoplayEnabled) {
+      stopCurrentPostAudio();
+      return;
+    }
+
     const post = filteredPosts.find((p: any) => String(p?._id || p?.id || '') === String(visiblePostId));
     const pid = String(post?._id || post?.id || '');
 
@@ -1159,6 +1153,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
     playPostSong(post);
   }, [
+    audioAutoplayEnabled,
     visiblePostId,
     filteredPosts,
     postMuted,
@@ -1169,6 +1164,21 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
   const togglePostMute = (postId: string) => {
     const pid = postId || '';
+    const post = filteredPosts.find((p: any) => String(p?._id || p?.id || '') === pid);
+
+    if (!audioAutoplayEnabled) {
+      setAudioAutoplayEnabled(true);
+      setPostMuted(prev => {
+        const next = { ...prev };
+        delete next[pid];
+        return next;
+      });
+      if (post) {
+        playPostSong(post, { ignoreMute: true });
+      }
+      return;
+    }
+
     const isMuted = !!postMuted[pid];
 
     if (isMuted) {
@@ -1178,9 +1188,8 @@ export default function Message({ groupName }: { groupName?: string | null }) {
         return next;
       });
 
-      const post = filteredPosts.find((p: any) => String(p?._id || p?.id || '') === pid);
       if (post) {
-        window.setTimeout(() => playPostSong(post, { ignoreMute: true }), 0);
+        playPostSong(post, { ignoreMute: true });
       }
       return;
     }
@@ -5129,9 +5138,9 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                         <button
                           onClick={() => togglePostMute(post._id || post.id)}
                           className="px-2 py-1 text-gray-500 hover:text-gray-700 z-20 relative"
-                          title={postMuted[post._id || post.id] ? 'Unmute' : 'Mute'}
+                          title={!audioAutoplayEnabled || postMuted[post._id || post.id] ? 'Play / Unmute' : 'Mute'}
                         >
-                          {postMuted[post._id || post.id] ? '🔇' : '🔊'}
+                          {!audioAutoplayEnabled || postMuted[post._id || post.id] ? '🔇' : '🔊'}
                         </button>
                       )}
                       <button onClick={() => setMenuOpen(menuOpen === post._id ? null : post._id)} className="px-2 py-1 text-gray-500 hover:text-gray-700 z-20 relative">⋮</button>
