@@ -59,31 +59,34 @@ function setAuthCookies(res: any, user: any, existingRefreshTokenHash?: string) 
 
 export const signup = async (req: Request, res: Response) => {
   try {
-    const { username, name, email, phone, password, location } = req.body;
+    const { username, name, email, phone, password, location, educationLevel } = req.body;
+    const educationLevels = ['Matriculation', 'Intermediate', 'Undergraduate', 'Postgraduate'];
 
-    if (!username || !name || !email || !password || !location) {
+    if (!username || !name || !email || !password || !location || !educationLevel) {
       return res.status(400).json({ message: 'Missing required fields' });
+    }
+    if (!educationLevels.includes(educationLevel)) {
+      return res.status(400).json({ message: 'Invalid education level' });
     }
 
     // Check email uniqueness
     const existing = await User.findOne({ email });
     if (existing) return res.status(400).json({ message: 'Email already in use' });
 
-    // Check username uniqueness within 2KM
-    const coords: [number, number] = location.coordinates;
-    const isAvailable = await (User as any).isUsernameAvailable(username, coords, 2000);
+    // Check username uniqueness globally
+    const isAvailable = await (User as any).isUsernameAvailable(username);
     if (!isAvailable) {
-      return res.status(409).json({ message: 'Username already taken within 2 KM' });
+      return res.status(409).json({ message: 'Username already taken' });
     }
 
-    const user = new User({ username, name, email, phone, password, location });
+    const user = new User({ username, name, email, phone, password, location, educationLevel });
     await user.save();
 
     // Set cookies (access + refresh + csrf)
     const { accessToken } = setAuthCookies(res, user);
 
     res.status(201).json({
-      user: { id: user._id, username, name, email },
+      user: { id: user._id, username, name, email, educationLevel },
       ...(exposeAccessToken ? { accessToken } : {}),
     });
   } catch (err) {
@@ -137,15 +140,6 @@ export const login = async (req: Request, res: Response) => {
       user.failedLoginAttempts = 0;
       user.lockUntil = undefined as any;
       user.save().catch(() => {});
-    }
-
-    // Validate username uniqueness within 2 KM using stored location (only for regular users)
-    if (userType === 'user' && user.username && user.location && user.location.coordinates) {
-      const coords: [number, number] = user.location.coordinates as [number, number];
-      const isAvailable = await (User as any).isUsernameAvailable(user.username, coords, 2000, user._id.toString());
-      if (!isAvailable) {
-        return res.status(409).json({ message: 'Username conflict within 2 KM. Please choose another username.' });
-      }
     }
 
     // Rotate/create new tokens
@@ -324,13 +318,10 @@ export const requestUsernameChange = async (req: AuthRequest, res: Response) => 
       return res.status(400).json({ message: 'Missing newUsername' });
     }
 
-    // check availability using user's location
-    if (user.location && user.location.coordinates) {
-      const coords: [number, number] = user.location.coordinates as [number, number];
-      const available = await (User as any).isUsernameAvailable(newUsername, coords, 2000, user._id.toString());
-      if (!available) {
-        return res.status(409).json({ message: 'Username not available in your area' });
-      }
+    // check availability globally
+    const available = await (User as any).isUsernameAvailable(newUsername, [0, 0], 0, user._id.toString());
+    if (!available) {
+      return res.status(409).json({ message: 'Username not available' });
     }
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -385,13 +376,10 @@ export const changeUsername = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ message: 'Invalid OTP' });
     }
 
-    // verify availability again (location-based)
-    if (user.location && user.location.coordinates) {
-      const coords: [number, number] = user.location.coordinates as [number, number];
-      const available = await (User as any).isUsernameAvailable(user.usernameChange.newUsername, coords, 2000, user._id.toString());
-      if (!available) {
-        return res.status(409).json({ message: 'Username not available' });
-      }
+    // verify availability again globally
+    const available = await (User as any).isUsernameAvailable(user.usernameChange.newUsername, [0, 0], 0, user._id.toString());
+    if (!available) {
+      return res.status(409).json({ message: 'Username not available' });
     }
 
     user.username = user.usernameChange.newUsername;

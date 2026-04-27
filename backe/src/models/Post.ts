@@ -2,6 +2,7 @@ import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IPost extends Document {
   user: mongoose.Types.ObjectId;
+  community?: mongoose.Types.ObjectId;
   username?: string;
   content: string;
   imageUrl?: string;
@@ -15,6 +16,7 @@ export interface IPost extends Document {
   likes: mongoose.Types.ObjectId[];
   reactions?: Map<string, number>;
   userReactions?: Map<string, string>;
+  expiresAt?: Date;
   comments: {
     user: mongoose.Types.ObjectId;
     content: string;
@@ -27,6 +29,7 @@ export interface IPost extends Document {
 const PostSchema = new Schema<IPost>(
   {
     user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    community: { type: Schema.Types.ObjectId, ref: 'Community', index: true },
     username: { type: String },
     content: { type: String, default: '' },
     imageUrl: { type: String },
@@ -40,6 +43,7 @@ const PostSchema = new Schema<IPost>(
     likes: [{ type: Schema.Types.ObjectId, ref: 'User' }],
     reactions: { type: Map, of: Number, default: new Map() },
     userReactions: { type: Map, of: String, default: new Map() },
+    expiresAt: { type: Date, index: { expireAfterSeconds: 0 } },
     comments: [
       {
         user: { type: Schema.Types.ObjectId, ref: 'User', required: true },

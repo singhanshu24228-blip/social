@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import Status from '../models/Status.js';
+import User from '../models/User.js';
 import { ioInstance } from '../socket/index.js';
 import { AuthRequest } from '../middleware/auth.js';
 import { getBlockedUserIdsForViewer, isEitherUserBlocked } from '../utils/blocking.js';
@@ -13,6 +14,33 @@ export const createStatus = async (req: AuthRequest, res: Response) => {
     if (!content && !mediaUrl && !songUrl) return res.status(400).json({ message: 'Nothing to post' });
 
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    // ── Streak logic ──────────────────────────────────────────────────────────
+    const userDoc = await User.findById(userId).select('statusStreak lastStatusAt').lean() as any;
+    const now = new Date();
+    let newStreak = 1;
+
+    if (userDoc?.lastStatusAt) {
+      const last = new Date(userDoc.lastStatusAt);
+      // Normalize both dates to midnight UTC so we compare calendar days
+      const lastDay = new Date(Date.UTC(last.getUTCFullYear(), last.getUTCMonth(), last.getUTCDate()));
+      const todayDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      const diffDays = Math.round((todayDay.getTime() - lastDay.getTime()) / (1000 * 60 * 60 * 24));
+
+      if (diffDays === 0) {
+        // Already posted today — keep streak as-is
+        newStreak = userDoc.statusStreak || 1;
+      } else if (diffDays === 1) {
+        // Posted yesterday — increment streak
+        newStreak = (userDoc.statusStreak || 0) + 1;
+      } else {
+        // Missed at least one day — reset
+        newStreak = 1;
+      }
+    }
+
+    await User.findByIdAndUpdate(userId, { statusStreak: newStreak, lastStatusAt: now });
+    // ─────────────────────────────────────────────────────────────────────────
 
     const status = new Status({ userId, content, mediaUrl, songUrl, expiresAt });
     await status.save();
@@ -33,13 +61,14 @@ export const createStatus = async (req: AuthRequest, res: Response) => {
           songUrl,
           expiresAt,
           createdAt: status.createdAt,
+          streak: newStreak,
         });
       });
     } catch (err) {
       console.warn('Failed to notify followers about status', err);
     }
 
-    res.json({ ok: true, statusId: status._id });
+    res.json({ ok: true, statusId: status._id, streak: newStreak });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -88,9 +117,17 @@ async function fetchStatusesForUser(userId: string) {
     .limit(50)
     .lean();
 
+  // Fetch streaks for all status owners
+  const ownerIds = [...new Set(statuses.map((s: any) => String(s.userId)))];
+  const userDocs = await User.find({ _id: { $in: ownerIds } })
+    .select('_id statusStreak lastStatusAt')
+    .lean() as any[];
+  const streakMap = new Map(userDocs.map((u: any) => [String(u._id), u.statusStreak || 0]));
+
   const sanitized = statuses.map((s: any) => {
-    if (String(s.userId) === String(userId)) return s;
-    const copy = { ...s };
+    const streak = streakMap.get(String(s.userId)) || 0;
+    if (String(s.userId) === String(userId)) return { ...s, streak };
+    const copy = { ...s, streak };
     delete (copy as any).views;
     delete (copy as any).viewers;
     return copy;
@@ -112,8 +149,11 @@ export const listNearbyStatuses = async (req: AuthRequest, res: Response) => {
 
 export const listFeedStatuses = async (req: AuthRequest, res: Response) => {
   try {
-    const statuses = await fetchStatusesForUser(String(req.user._id));
-    res.json({ statuses });
+    const userId = String(req.user._id);
+    const statuses = await fetchStatusesForUser(userId);
+    // Also return the current user's own streak
+    const me = await User.findById(userId).select('statusStreak lastStatusAt').lean() as any;
+    res.json({ statuses, myStreak: me?.statusStreak || 0 });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });

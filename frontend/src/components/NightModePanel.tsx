@@ -1,100 +1,26 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { getTimeUntilNightMode, enterNightMode } from '../services/api';
-
-interface TimeInfo {
-  isCurrentlyInNightMode: boolean;
-  isInEntryWindow: boolean;
-  timeUntilNightMode: number | null;
-  timeUntilDayMode: number | null;
-  message: string;
-  formattedTimeUntilNightMode: string | null;
-}
+import React, { useState } from 'react';
+import { enterNightMode } from '../services/api';
 
 interface NightModePanelProps {
   onEnterNightMode?: (success: boolean) => void;
 }
 
 const NightModePanel: React.FC<NightModePanelProps> = ({ onEnterNightMode }) => {
-  const [timeInfo, setTimeInfo] = useState<TimeInfo | null>(null);
   const [attempting, setAttempting] = useState(false);
   const [error, setError] = useState('');
-  const [timeLeft, setTimeLeft] = useState<string>('');
-  const [stars, setStars] = useState<{ x: number; y: number; size: number; opacity: number; speed: number }[]>([]);
-  const [pulse, setPulse] = useState(false);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animRef = useRef<number>(0);
+  const [isPressed, setIsPressed] = useState(false);
+  const [books] = useState(() =>
+    Array.from({ length: 6 }, (_, i) => ({
+      emoji: ['📚', '📖', '✏️', '🔬', '📐', '💡'][i],
+      x: Math.random() * 85 + 5,
+      y: Math.random() * 75 + 10,
+      delay: Math.random() * 3,
+      size: '1.1rem',
+    }))
+  );
 
-  const isLoading = !timeInfo;
-
-  const fallbackTimeInfo: TimeInfo = {
-    isCurrentlyInNightMode: false,
-    isInEntryWindow: false,
-    timeUntilNightMode: null,
-    timeUntilDayMode: null,
-    message: isLoading ? 'Loading night mode info…' : 'Night mode info unavailable.',
-    formattedTimeUntilNightMode: null,
-  };
-
-  // Generate stars
-  useEffect(() => {
-    const generated = Array.from({ length: 80 }, () => ({
-      x: Math.random() * 100,
-      y: Math.random() * 100,
-      size: Math.random() * 2.5 + 0.5,
-      opacity: Math.random() * 0.7 + 0.3,
-      speed: Math.random() * 2 + 1,
-    }));
-    setStars(generated);
-  }, []);
-
-  // Pulse moon periodically
-  useEffect(() => {
-    const interval = setInterval(() => setPulse(p => !p), 2000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    fetchTimeInfo();
-    const interval = setInterval(fetchTimeInfo, 30000);
-    const countdownInterval = setInterval(updateCountdown, 1000);
-    return () => {
-      clearInterval(interval);
-      clearInterval(countdownInterval);
-    };
-  }, []);
-
-  const fetchTimeInfo = async () => {
-    try {
-      const response = await getTimeUntilNightMode();
-      setTimeInfo(response.data);
-      setError('');
-      updateCountdown(response.data);
-    } catch (err: any) {
-      const status = err?.response?.status;
-      const statusText = err?.response?.statusText;
-      const hint = status ? `Request failed (${status}${statusText ? ` ${statusText}` : ''}).` : 'Network error.';
-      setError(`${hint} Check your API URL.`);
-      setTimeInfo((prev) => prev ?? fallbackTimeInfo);
-    }
-  };
-
-  const updateCountdown = (data?: TimeInfo) => {
-    const info = data || timeInfo;
-    const remainingMs = info?.isCurrentlyInNightMode ? info?.timeUntilDayMode : info?.timeUntilNightMode;
-    if (typeof remainingMs === 'number' && remainingMs > 0) {
-      const seconds = Math.floor(remainingMs / 1000);
-      const hours = Math.floor(seconds / 3600);
-      const minutes = Math.floor((seconds % 3600) / 60);
-      const secs = seconds % 60;
-      if (hours > 0) setTimeLeft(`${hours}h ${minutes}m`);
-      else if (minutes > 0) setTimeLeft(`${minutes}m ${secs}s`);
-      else setTimeLeft(`${secs}s`);
-    } else {
-      setTimeLeft('');
-    }
-  };
-
-  const handleEnterNightMode = async () => {
+  const handleEnterStudyMode = async () => {
+    if (attempting) return;
     setAttempting(true);
     setError('');
     try {
@@ -102,179 +28,134 @@ const NightModePanel: React.FC<NightModePanelProps> = ({ onEnterNightMode }) => 
       if (response.data.success) {
         onEnterNightMode?.(true);
       } else {
-        setError(response.data.message || 'Failed to enter night mode');
+        setError(response.data.message || 'Failed to enter Study Mode');
         onEnterNightMode?.(false);
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Error entering night mode');
+      setError(err.response?.data?.message || 'Error entering Study Mode');
       onEnterNightMode?.(false);
     } finally {
       setAttempting(false);
     }
   };
 
-  const displayInfo = timeInfo || fallbackTimeInfo;
-
   return (
-    <div style={{
-      position: 'relative',
-      width: '100%',
-      minHeight: '420px',
-      borderRadius: '24px',
-      overflow: 'hidden',
-      background: 'linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: '36px 24px',
-      boxShadow: '0 0 60px rgba(139,92,246,0.3), 0 0 120px rgba(88,28,135,0.2)',
-    }}>
-      {/* Starfield */}
-      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}>
-        {stars.map((star, i) => (
-          <div
-            key={i}
-            style={{
-              position: 'absolute',
-              left: `${star.x}%`,
-              top: `${star.y}%`,
-              width: `${star.size}px`,
-              height: `${star.size}px`,
-              borderRadius: '50%',
-              background: 'white',
-              opacity: star.opacity,
-              animation: `twinkle ${star.speed}s ease-in-out infinite alternate`,
-            }}
-          />
+    <div className="relative w-full rounded-3xl overflow-hidden flex flex-col items-center justify-center py-10 px-5 sm:py-12 sm:px-6"
+      style={{
+        minHeight: '420px',
+        background: 'linear-gradient(135deg,#0f172a 0%,#1e1b4b 50%,#0f172a 100%)',
+        boxShadow: '0 25px 50px -12px rgba(139, 92, 246, 0.25), 0 0 80px rgba(251, 191, 36, 0.1)',
+        border: '1px solid rgba(139, 92, 246, 0.2)',
+      }}
+    >
+      {/* Floating study icons */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        {books.map((b, i) => (
+          <div key={i} style={{
+            position: 'absolute',
+            left: `${b.x}%`,
+            top: `${b.y}%`,
+            fontSize: b.size,
+            opacity: .25,
+            animation: `float-icon ${3 + b.delay}s ease-in-out infinite alternate`,
+          }}>{b.emoji}</div>
         ))}
       </div>
 
-      {/* Nebula glows */}
-      <div style={{
-        position: 'absolute', inset: 0, pointerEvents: 'none',
-        background: 'radial-gradient(ellipse at 20% 50%, rgba(139,92,246,0.15) 0%, transparent 60%), radial-gradient(ellipse at 80% 20%, rgba(219,39,119,0.1) 0%, transparent 60%)',
-      }} />
+      {/* Glow background */}
+      <div className="absolute inset-0 pointer-events-none"
+        style={{
+          background: 'radial-gradient(ellipse at 30% 50%,rgba(251,191,36,.08) 0%,transparent 60%), radial-gradient(ellipse at 70% 20%,rgba(59,130,246,.08) 0%,transparent 60%)',
+        }}
+      />
 
-      {/* Moon */}
-      <div style={{
-        fontSize: '80px',
-        lineHeight: 1,
-        marginBottom: '20px',
-        filter: 'drop-shadow(0 0 20px rgba(196,181,253,0.8)) drop-shadow(0 0 40px rgba(139,92,246,0.5))',
-        transition: 'transform 0.6s ease',
-        transform: pulse ? 'scale(1.08) rotate(-5deg)' : 'scale(1) rotate(0deg)',
-        cursor: displayInfo.isInEntryWindow ? 'pointer' : 'default',
-      }} onClick={displayInfo.isInEntryWindow ? handleEnterNightMode : undefined}>
-        🌙
+      {/* Icon */}
+      <div className="relative z-10 text-6xl sm:text-7xl mb-5"
+        style={{
+          filter: 'drop-shadow(0 0 30px rgba(251,191,36,.6))',
+          animation: 'float-icon 3s ease-in-out infinite alternate',
+        }}
+      >
+        📚
       </div>
 
       {/* Title */}
-      <h2 style={{
-        fontSize: '28px',
-        fontWeight: 800,
-        letterSpacing: '0.05em',
-        background: 'linear-gradient(90deg, #c4b5fd, #f472b6, #818cf8)',
-        WebkitBackgroundClip: 'text',
-        WebkitTextFillColor: 'transparent',
-        marginBottom: '8px',
-        textAlign: 'center',
-      }}>
-        Night Mode
+      <h2 className="relative z-10 text-2xl sm:text-3xl font-extrabold text-center mb-3"
+        style={{
+          letterSpacing: '.04em',
+          background: 'linear-gradient(90deg,#fbbf24,#60a5fa,#a78bfa)',
+          WebkitBackgroundClip: 'text',
+          WebkitTextFillColor: 'transparent',
+        }}
+      >
+        Study Mode
       </h2>
 
-      <p style={{ color: '#a78bfa', fontSize: '13px', textAlign: 'center', marginBottom: '24px', opacity: 0.85, maxWidth: '280px' }}>
-        {displayInfo.message}
+      {/* Description */}
+      <p className="relative z-10 text-slate-400 text-sm sm:text-base text-center mb-3 px-4 max-w-xs">
+        Collaborate with classmates, open cameras, share notes & discuss problems
       </p>
 
-      {/* Countdown badge */}
-      {timeLeft && (
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          marginBottom: '20px',
-          padding: '12px 28px',
-          borderRadius: '16px',
-          background: 'rgba(139,92,246,0.15)',
-          border: '1px solid rgba(139,92,246,0.35)',
-          backdropFilter: 'blur(8px)',
-        }}>
-          <span style={{ fontSize: '11px', color: '#c4b5fd', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '4px' }}>
-            {displayInfo.isCurrentlyInNightMode ? 'Until Day Mode' : 'Until Night Mode'}
-          </span>
-          <span style={{
-            fontSize: '32px',
-            fontWeight: 700,
-            color: '#f0abfc',
-            fontVariantNumeric: 'tabular-nums',
-            letterSpacing: '0.02em',
-          }}>{timeLeft}</span>
-        </div>
-      )}
+      {/* Feature tags */}
+      <div className="relative z-10 flex flex-wrap gap-2 sm:gap-4 justify-center text-xs sm:text-sm text-slate-500 mb-6 px-2">
+        <span className="flex items-center gap-1">🎥 Video rooms</span>
+        <span className="flex items-center gap-1">💬 Live chat</span>
+        <span className="flex items-center gap-1">📤 Share files</span>
+      </div>
 
-      {/* Error */}
+      {/* Error message */}
       {error && (
-        <div style={{
-          marginBottom: '16px',
-          padding: '10px 16px',
-          borderRadius: '10px',
-          background: 'rgba(239,68,68,0.12)',
-          border: '1px solid rgba(239,68,68,0.4)',
-          color: '#fca5a5',
-          fontSize: '13px',
-          textAlign: 'center',
-          maxWidth: '320px',
-        }}>
+        <div className="relative z-10 w-full max-w-xs mb-4 px-4 py-2.5 rounded-xl text-center text-sm"
+          style={{
+            background: 'rgba(239,68,68,.12)',
+            border: '1px solid rgba(239,68,68,.4)',
+            color: '#fca5a5',
+          }}
+        >
           {error}
         </div>
       )}
 
-      {/* Enter button */}
-      {displayInfo.isInEntryWindow && (
-        <button
-          onClick={handleEnterNightMode}
-          disabled={attempting}
-          style={{
-            padding: '14px 36px',
-            borderRadius: '50px',
-            border: 'none',
-            background: attempting
-              ? 'rgba(139,92,246,0.4)'
-              : 'linear-gradient(135deg, #7c3aed, #db2777)',
-            color: 'white',
-            fontSize: '15px',
-            fontWeight: 700,
-            cursor: attempting ? 'not-allowed' : 'pointer',
-            boxShadow: '0 0 30px rgba(139,92,246,0.5)',
-            transition: 'all 0.3s ease',
-            letterSpacing: '0.03em',
-            opacity: attempting ? 0.7 : 1,
-          }}
-          onMouseEnter={e => { if (!attempting) (e.target as HTMLElement).style.transform = 'scale(1.05)'; }}
-          onMouseLeave={e => { (e.target as HTMLElement).style.transform = 'scale(1)'; }}
-        >
-          {attempting ? '✨ Entering...' : '🌙 Enter Night Mode'}
-        </button>
-      )}
+      {/* Enter button - larger touch target */}
+      <button
+        onClick={handleEnterStudyMode}
+        onTouchStart={() => setIsPressed(true)}
+        onTouchEnd={() => setIsPressed(false)}
+        onMouseDown={() => setIsPressed(true)}
+        onMouseUp={() => setIsPressed(false)}
+        onMouseLeave={() => setIsPressed(false)}
+        disabled={attempting}
+        className={`relative z-10 px-8 sm:px-10 py-3.5 sm:py-4 rounded-full border-none font-bold text-sm sm:text-base
+          transition-all duration-200 touch-manipulation select-none active:scale-95
+          ${attempting
+            ? 'cursor-not-allowed opacity-70'
+            : isPressed
+              ? 'scale-95'
+              : 'hover:scale-105 hover:shadow-lg'
+          }`}
+        style={{
+          background: attempting
+            ? 'rgba(251,191,36,.4)'
+            : 'linear-gradient(135deg,#fbbf24,#f59e0b)',
+          color: '#0f172a',
+          boxShadow: '0 0 30px rgba(251,191,36,.4)',
+          letterSpacing: '.02em',
+          minHeight: '48px',
+          minWidth: '200px',
+        }}
+      >
+        {attempting ? '⏳ Entering…' : '📚 Enter Study Mode'}
+      </button>
 
-      {/* Info text */}
-      <div style={{
-        marginTop: '20px',
-        padding: '10px 16px',
-        borderRadius: '10px',
-        background: 'rgba(255,255,255,0.04)',
-        border: '1px solid rgba(255,255,255,0.08)',
-        textAlign: 'center',
-      }}>
-        <p style={{ color: '#6b7280', fontSize: '12px', marginBottom: '2px' }}>Available: 10:00 PM – 3:30 AM</p>
-        <p style={{ color: '#6b7280', fontSize: '12px' }}>Stays active until 5:00 AM once entered</p>
-      </div>
+      {/* Footer note */}
+      <p className="relative z-10 text-slate-500 text-xs sm:text-sm mt-4 text-center px-4">
+        Admin approval required · Available 24/7
+      </p>
 
       <style>{`
-        @keyframes twinkle {
-          0% { opacity: 0.2; transform: scale(0.8); }
-          100% { opacity: 1; transform: scale(1.2); }
+        @keyframes float-icon {
+          0% { transform: translateY(0) rotate(-5deg); opacity: .15; }
+          100% { transform: translateY(-12px) rotate(5deg); opacity: .35; }
         }
       `}</style>
     </div>

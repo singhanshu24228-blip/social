@@ -178,8 +178,7 @@ export function initSocket(server: HttpServer) {
         if (!room) return;
         const isParticipant = (room.participants || []).some((p: any) => String(p) === String(userId));
         if (!isParticipant) return;
-        // Only creator can stream (matches REST canSendMediaInRoom)
-        if (String(room.creator) !== String(userId)) return;
+        // All participants can stream in Study Mode (matches REST canSendMediaInRoom)
 
         // Ensure streamer is in the night room channel even if they clicked "Start" quickly.
         socket.join(`nightroom:${roomId}`);

@@ -87,17 +87,33 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     me = null;
   }
   const myId = String(me?._id || me?.id || '');
-  const [mode, setMode] = useState<'groups' | 'private' | 'status' | 'posts' | 'messages' | 'random'>('posts');
+  const [mode, setMode] = useState<'groups' | 'communities' | 'private' | 'status' | 'posts' | 'messages' | 'random'>('posts');
   const [showNotifications, setShowNotifications] = useState(false);
   const [groups, setGroups] = useState<any[]>([]);
   const [myPublicGroups, setMyPublicGroups] = useState<any[]>([]);
+  const [communityDirectory, setCommunityDirectory] = useState<any[]>([]);
   const [publicGroupSearch, setPublicGroupSearch] = useState('');
   const [publicGroupResults, setPublicGroupResults] = useState<any[]>([]);
   const [newPublicGroupName, setNewPublicGroupName] = useState('');
+  const [newPublicGroupPurpose, setNewPublicGroupPurpose] = useState('');
+  const [newPublicGroupProfilePicture, setNewPublicGroupProfilePicture] = useState('');
   const [isCreatingPublicGroup, setIsCreatingPublicGroup] = useState(false);
   const [isSearchingPublicGroups, setIsSearchingPublicGroups] = useState(false);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [activeGroup, setActiveGroup] = useState<any | null>(null);
+  const [activeCommunity, setActiveCommunity] = useState<any | null>(null);
+  const [activeCommunityDetails, setActiveCommunityDetails] = useState<any | null>(null);
+  const [communityPosts, setCommunityPosts] = useState<any[]>([]);
+  const [communityPostsLoading, setCommunityPostsLoading] = useState(false);
+  const [communityPostContent, setCommunityPostContent] = useState('');
+  const [communityPostImage, setCommunityPostImage] = useState<File | null>(null);
+  const [communityPosting, setCommunityPosting] = useState(false);
+  const [communityManageOpen, setCommunityManageOpen] = useState(false);
+  const [communityManageName, setCommunityManageName] = useState('');
+  const [communityManagePurpose, setCommunityManagePurpose] = useState('');
+  const [communityManageProfilePicture, setCommunityManageProfilePicture] = useState('');
+  const [communitySaving, setCommunitySaving] = useState(false);
+  const [communityRemovingMemberId, setCommunityRemovingMemberId] = useState('');
   const [privateSearch, setPrivateSearch] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [activePrivateUser, setActivePrivateUser] = useState<any | null>(null);
@@ -168,11 +184,12 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     const id = String(groupId || '');
     if (!id) return null;
     return (
-      (myPublicGroups || []).find((g) => String(g?.id) === id) ||
       (groups || []).find((g) => String(g?.id) === id) ||
       null
     );
   };
+
+  const visibleGroups = useMemo(() => groups || [], [groups]);
 
   const dedupeUsers = (list: any[]) => {
     const seen = new Set<string>();
@@ -367,6 +384,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   const [statusMediaType, setStatusMediaType] = useState<'image' | 'video' | ''>('');
   const [selectedFileName, setSelectedFileName] = useState('');
   const [isUploadingStatusMedia, setIsUploadingStatusMedia] = useState(false);
+  const [myStreak, setMyStreak] = useState<number>(0);
   const [nearbyUsers, setNearbyUsers] = useState<any[]>([]);
   const [randomUsers, setRandomUsers] = useState<any[]>([]);
   const [recentChats, setRecentChats] = useState<any[]>([]);
@@ -376,6 +394,14 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [showWallpaperPicker, setShowWallpaperPicker] = useState(false);
   const [showChatOptions, setShowChatOptions] = useState(false);
+
+  // Close post three-dot menu when clicking outside
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = () => setMenuOpen(null);
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, [menuOpen]);
 
   // Auto-clear msg after 5 seconds
   useEffect(() => {
@@ -494,36 +520,28 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   const [zoomedPostMedia, setZoomedPostMedia] = useState<null | { src: string; kind: 'image' | 'video' }>(null);
   const [showMyProfileModal, setShowMyProfileModal] = useState(false);
   const [myProfile, setMyProfile] = useState<any>(null);
-  const [myBioDraft, setMyBioDraft] = useState('');
+  const [myProfessionTypeDraft, setMyProfessionTypeDraft] = useState('');
+  const [myProfessionDetailDraft, setMyProfessionDetailDraft] = useState('');
   const [myProfileLoading, setMyProfileLoading] = useState(false);
   const [myProfileSavingBio, setMyProfileSavingBio] = useState(false);
   const [myProfileError, setMyProfileError] = useState('');
   const [isUploadingMyProfilePic, setIsUploadingMyProfilePic] = useState(false);
   const [myProfilePicError, setMyProfilePicError] = useState('');
   const myProfilePicInputRef = useRef<HTMLInputElement | null>(null);
-  const [unlockDialog, setUnlockDialog] = useState<null | {
-    postId: string;
-    orderId: string;
-    amount: number;
-    key: string;
-    upiVpa?: string;
-    payeeName?: string;
-  }>(null);
-  const [unlockInitiating, setUnlockInitiating] = useState(false);
+
 
   useEffect(() => {
-    if (!zoomedProfilePicSrc && !zoomedPostMedia && !showMyProfileModal && !unlockDialog) return;
+    if (!zoomedProfilePicSrc && !zoomedPostMedia && !showMyProfileModal) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setZoomedProfilePicSrc('');
         setZoomedPostMedia(null);
         setShowMyProfileModal(false);
-        setUnlockDialog(null);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [zoomedProfilePicSrc, zoomedPostMedia, showMyProfileModal, unlockDialog]);
+  }, [zoomedProfilePicSrc, zoomedPostMedia, showMyProfileModal]);
 
   const openMyProfileModal = async () => {
     if (!myId) {
@@ -538,7 +556,8 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       const res = await api.get(`/users/profile/${encodeURIComponent(myId)}`);
       const u = res.data?.user;
       setMyProfile(u);
-      setMyBioDraft(String(u?.about || ''));
+      setMyProfessionTypeDraft(String(u?.professionType || ''));
+      setMyProfessionDetailDraft(String(u?.professionDetail || ''));
       // Preload followers/following so counts render quickly
       if (!loadingFollowersList && followers.length === 0 && following.length === 0) {
         loadFollowersAndFollowing();
@@ -555,20 +574,22 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     setMyProfileSavingBio(true);
     setMyProfileError('');
     try {
-      const res = await api.put('/users/bio', { about: myBioDraft });
+      const res = await api.put('/users/bio', { professionType: myProfessionTypeDraft, professionDetail: myProfessionDetailDraft });
       const u = res.data?.user;
       if (u) {
         setMyProfile(u);
-        setMyBioDraft(String(u.about || ''));
+        setMyProfessionTypeDraft(String(u.professionType || ''));
+        setMyProfessionDetailDraft(String(u.professionDetail || ''));
       }
       try {
         const stored = JSON.parse(localStorage.getItem('user') || 'null');
         if (stored) {
-          stored.about = u?.about ?? myBioDraft.trim();
+          stored.professionType = u?.professionType ?? myProfessionTypeDraft.trim();
+          stored.professionDetail = u?.professionDetail ?? myProfessionDetailDraft.trim();
           localStorage.setItem('user', JSON.stringify(stored));
         }
       } catch { }
-      setMsg('Bio updated');
+      setMsg('Details updated');
     } catch (err: any) {
       setMyProfileError(err?.response?.data?.message || 'Failed to update bio');
     } finally {
@@ -628,6 +649,21 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     return s;
   };
 
+  const shortTimeAgo = (dateStr: string): string => {
+    try {
+      const diff = Date.now() - new Date(dateStr).getTime();
+      if (diff < 60_000) return 'just now';
+      if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`;
+      if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h`;
+      if (diff < 604_800_000) return `${Math.floor(diff / 86_400_000)}d`;
+      if (diff < 2_592_000_000) return `${Math.floor(diff / 604_800_000)}w`;
+      if (diff < 31_536_000_000) return `${Math.floor(diff / 2_592_000_000)}mo`;
+      return `${Math.floor(diff / 31_536_000_000)}y`;
+    } catch {
+      return '';
+    }
+  };
+
   const getFontSize = (size: string) => {
     switch (size) {
       case 'small': return '12px';
@@ -660,7 +696,9 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   useEffect(() => {
     try {
       const savedMode = localStorage.getItem('messageMode');
-      if (savedMode === 'groups' || savedMode === 'private' || savedMode === 'status' || savedMode === 'posts' || savedMode === 'messages' || savedMode === 'random') {
+      if (savedMode === 'groups') {
+        setMode('communities');
+      } else if (savedMode === 'communities' || savedMode === 'private' || savedMode === 'status' || savedMode === 'posts' || savedMode === 'messages' || savedMode === 'random') {
         setMode(savedMode);
       }
     } catch (err) {
@@ -718,10 +756,10 @@ export default function Message({ groupName }: { groupName?: string | null }) {
         localStorage.setItem('isInNightMode', 'true');
         window.location.pathname = '/message/night';
       } else {
-        setMsg('Failed to enter night mode: ' + response.data.message);
+        setMsg('Failed to enter Study Mode: ' + response.data.message);
       }
     } catch (err: any) {
-      setMsg('Error entering night mode: ' + (err.response?.data?.message || err.message));
+      setMsg('Error entering Study Mode: ' + (err.response?.data?.message || err.message));
     } finally {
       setEnteringNightMode(false);
     }
@@ -786,7 +824,8 @@ export default function Message({ groupName }: { groupName?: string | null }) {
         const u = res.data?.user;
         if (u) {
           setMyProfile(u);
-          setMyBioDraft(String(u?.about || ''));
+          setMyProfessionTypeDraft(String(u?.professionType || ''));
+          setMyProfessionDetailDraft(String(u?.professionDetail || ''));
           // Also keep localStorage in sync with the latest Cloudinary URL
           try {
             const stored = JSON.parse(localStorage.getItem('user') || 'null');
@@ -808,14 +847,14 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   const [postSong, setPostSong] = useState<string>('');
   const [postAnonymous, setPostAnonymous] = useState(false);
   const [postPrivate, setPostPrivate] = useState(false);
-  const [postIsLocked, setPostIsLocked] = useState(false);
-  const [postLockedPrice, setPostLockedPrice] = useState<number>(0);
+
   const [postLoading, setPostLoading] = useState(false);
   const [postSearchQuery, setPostSearchQuery] = useState('');
   const [postSearchResults, setPostSearchResults] = useState<any[]>([]);
   const [postIsSearching, setPostIsSearching] = useState(false);
   const [selectedPostUsername, setSelectedPostUsername] = useState<string | null>(null);
   const [selectedUserProfile, setSelectedUserProfile] = useState<any>(null);
+  const [selectedCommunitySearch, setSelectedCommunitySearch] = useState<any | null>(null);
   const [postSearchOpen, setPostSearchOpen] = useState(false);
   const [viewingOwnPosts, setViewingOwnPosts] = useState(false);
   const [currentPlayingAudio, setCurrentPlayingAudio] = useState<HTMLAudioElement | null>(null);
@@ -828,15 +867,43 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   const [submittingComment, setSubmittingComment] = useState<Record<string, boolean>>({});
   // songs shipped in frontend/public (update when adding/removing files there)
   const publicSongs = [
-    // 'Aakh talabani.m4a',
-    // 'ishqa be (2).m4a',
-    // 'Ishqa be.m4a',
-    // 'Runway (2).m4a',
-    // 'Runway.m4a',
+    '24575281-pony-trek-guitar-ahmad-mousavipour-13869.mp3',
+    'apalonbeats-phonk-tiktok-instagram-youtube-music-509949.mp3',
+    'bfcmusic-lofi-beat-loop-383538.mp3',
+    'breakzstudios-epic-trap-cinematic-ident-201069.mp3',
+    'burtysounds-stylish-sport-energy-229839.mp3',
+    'denielcz-beatbox-445412.mp3',
+    'diamond_tunes-jogging-15sec-286798.mp3',
+    'good_b_music-happy-birthday-my-kitty-120918.mp3',
+    'grand_project-nice-day_verse-3-loop-263108.mp3',
+    'haletski-light-logo-136665.mp3',
+    'happinessinmusic-happy-joyful-515081.mp3',
+    'joelfazhari-inside-serial-killerx27s-cove-thriller-horror-music-loopable-15384.mp3',
+    'kaazoom-hawaiian-shuffle-30-sec-edit-happy-ukulele-and-guitar-490375.mp3',
+    'kaazoom-reaching-up-30-sec-edit-corporate-ambient-music-473303.mp3',
+    'loksii-background-intro-music-15-seconds-232690.mp3',
+    'nesterouk-corporate-logo-149111.mp3',
+    'nra-lab-sick-energy-stomps-pulsepound-213706.mp3',
+    'predicson_music-cinematic-casual-background2-307965.mp3',
+    'prettyjohn1-spring-vlog_34sec-508391.mp3',
+    'saavane-happy-birthday-254480.mp3',
+    'sonican-into-horizon-epic-inspirational-cinematic-30-sec-441073.mp3',
+    'soulfuljamtracks-cinematic-rock-music-248929.mp3',
+    'soulprodmusic-upbeat-happy-logo-2-versions-146604.mp3',
+    'sound_garage-rock-hip-hop-loop-382956.mp3',
+    'starostin-upbeat-kids-music-30-sec-338546.mp3',
+    'universfield-brass-motivation-143031.mp3',
+    'universfield-horror-trailer-30s-217439.mp3',
+    'u_dxlduo3m2g-panic-182769.mp3',
+    'white_records-background-music-for-vlog-video-funny-dance-tropical-house-30-second-180425.mp3',
+    'white_records-neon-drift-phonk-house-background-music-for-video-27-second-496492.mp3',
+    'white_records-toxic-drift-house-background-music-for-video-stories-28-second-503885.mp3',
+    'white_records-toxic-drift-phonk-house-background-music-for-video-stories-27-second-503884.mp3',
   ];
 
   const postComposerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const postImageInputRef = useRef<HTMLInputElement | null>(null);
+  const communityPostImageInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!isPostComposerOpen) return;
@@ -869,9 +936,9 @@ export default function Message({ groupName }: { groupName?: string | null }) {
         return String(postUserId) === String(me?.id);
       });
     }
-    if (selectedPostUsername) return postSearchResults;
+    if (selectedPostUsername || selectedCommunitySearch) return postSearchResults;
     return posts;
-  }, [posts, viewingOwnPosts, selectedPostUsername, postSearchResults, me]);
+  }, [posts, viewingOwnPosts, selectedPostUsername, selectedCommunitySearch, postSearchResults, me]);
 
   // Default infinity logo as SVG data URL
   const defaultInfinityLogo = useMemo(() => {
@@ -1212,15 +1279,43 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     const s = connectSocket();
     s.on('connect_error', (err) => console.error('Socket error', err));
 
-    const loadMyPublicGroups = async () => {
+    const loadMyCommunities = async () => {
       try {
-        const res = await api.get('/groups/mine?type=public');
-        setMyPublicGroups(res.data?.groups || []);
+        const res = await api.get('/communities/mine');
+        setMyPublicGroups(res.data?.communities || []);
       } catch (err) {
         setMyPublicGroups([]);
       }
     };
 
+    const loadCommunityDirectory = async () => {
+      try {
+        const res = await api.get('/communities');
+        setCommunityDirectory(res.data?.communities || []);
+      } catch (err) {
+        setCommunityDirectory([]);
+      }
+    };
+
+    const loadMyPublicGroups = async () => {
+      try {
+        const res = await api.get('/groups/mine?type=public');
+        const existing = res.data?.groups || [];
+        setGroups((prev) => {
+          const current = Array.isArray(prev) ? prev : [];
+          const merged = [...current];
+          for (const g of existing) {
+            if (!merged.some((item: any) => String(item?.id) === String(g?.id))) merged.push(g);
+          }
+          return merged;
+        });
+      } catch (err) {
+        // ignore
+      }
+    };
+
+    loadMyCommunities();
+    loadCommunityDirectory();
     loadMyPublicGroups();
 
     navigator.geolocation.getCurrentPosition(async (pos) => {
@@ -1245,6 +1340,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
           const sres = await api.get(`/status/feed`);
           const fetchedStatuses = sres.data.statuses || [];
           setStatuses(fetchedStatuses);
+          if (sres.data.myStreak !== undefined) setMyStreak(sres.data.myStreak);
         } catch (err) {
 
         }
@@ -1516,19 +1612,60 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     return next;
   };
 
+  const getCommunityId = (community: any) => String(community?._id || community?.id || '');
+  const getCommunityName = (community: any) => String(community?.name || community?.groupName || '');
+  const withCommunityMeta = (list: any[], community: any) =>
+    (Array.isArray(list) ? list : []).map((post: any) => ({
+      ...post,
+      community: post?.community || community,
+      communityId: String(post?.communityId || getCommunityId(community) || ''),
+    }));
+
+  const resetCreateCommunityForm = () => {
+    setNewPublicGroupName('');
+    setNewPublicGroupPurpose('');
+    setNewPublicGroupProfilePicture('');
+  };
+
+  const loadCommunityDetails = async (groupId: string) => {
+    const res = await api.get(`/communities/${groupId}`);
+    const community = res.data?.community || null;
+    setActiveCommunityDetails(community);
+    setCommunityManageName(String(community?.name || ''));
+    setCommunityManagePurpose(String(community?.purpose || ''));
+    setCommunityManageProfilePicture(String(community?.profilePicture || ''));
+  };
+
+  const loadCommunityPosts = async (groupId: string) => {
+    try {
+      setCommunityPostsLoading(true);
+      const res = await api.get(`/posts?communityId=${encodeURIComponent(groupId)}`);
+      setCommunityPosts(res.data || []);
+    } catch (err: any) {
+      setMsg(err?.response?.data?.message || 'Failed to load community posts');
+    } finally {
+      setCommunityPostsLoading(false);
+    }
+  };
+
   const createAndEnterPublicGroup = async () => {
     const name = String(newPublicGroupName || '').trim();
     if (!name) return;
     try {
       setIsCreatingPublicGroup(true);
-      setMsg('Creating group...');
-      const res = await api.post('/groups/public/create', { groupName: name });
-      const g = res.data?.group;
+      setMsg('Creating community...');
+      const res = await api.post('/communities', {
+        name,
+        purpose: newPublicGroupPurpose,
+        profilePicture: newPublicGroupProfilePicture,
+      });
+      const g = res.data?.community;
       if (g) {
         setMyPublicGroups((prev) => upsertGroup(prev, g));
-        setNewPublicGroupName('');
+        setCommunityDirectory((prev) => upsertGroup(prev, g));
+        resetCreateCommunityForm();
         setShowCreateGroup(false);
-        await enterGroup(g);
+        await enterCommunity(g);
       }
       setMsg('');
     } catch (err: any) {
@@ -1543,8 +1680,8 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     if (!q) return setPublicGroupResults([]);
     try {
       setIsSearchingPublicGroups(true);
-      const res = await api.get(`/groups/public/search?q=${encodeURIComponent(q)}`);
-      setPublicGroupResults(res.data?.groups || []);
+      const res = await api.get(`/communities/search?q=${encodeURIComponent(q)}`);
+      setPublicGroupResults(res.data?.communities || []);
     } catch (err: any) {
       setMsg(err?.response?.data?.message || 'Group search failed');
     } finally {
@@ -1555,11 +1692,12 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   const joinAndEnterPublicGroup = async (g: any) => {
     try {
       setMsg('Joining...');
-      await api.post(`/groups/public/${g.id}/join`);
-      const joined = { ...g, isMember: true, groupType: 'PUBLIC' };
+      const res = await api.post(`/communities/${g.id}/join`);
+      const joined = { ...g, ...(res.data?.community || {}), isMember: true };
       setMyPublicGroups((prev) => upsertGroup(prev, joined));
+      setCommunityDirectory((prev) => upsertGroup(prev, joined));
       setPublicGroupResults((prev) => (prev || []).map((x: any) => (String(x.id) === String(g.id) ? joined : x)));
-      await enterGroup(joined);
+      await enterCommunity(joined);
       setMsg('Joined');
     } catch (err: any) {
       setMsg(err?.response?.data?.message || 'Failed to join group');
@@ -1579,6 +1717,8 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       setUnreadMessages((prev) => prev.filter((msg) => String(msg.groupId || msg.normalizedGroupId) !== String(group.id)));
       if (String(activeGroup?.id || '') === String(group.id)) {
         setActiveGroup(null);
+        setActiveCommunityDetails(null);
+        setCommunityPosts([]);
         setMessages([]);
       }
       setMsg('Group deleted');
@@ -1602,6 +1742,104 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     }
 
     history.pushState(null, '', `/message`);
+  };
+
+  const enterCommunity = async (community: any) => {
+    setMode('communities');
+    setActiveCommunity(community);
+    await Promise.all([
+      loadCommunityDetails(String(community.id)),
+      loadCommunityPosts(String(community.id)),
+    ]);
+  };
+
+  const uploadCommunityProfilePicture = async (file: File) => {
+    const uploadRes = await uploadFile(file);
+    return String(uploadRes.data?.url || '');
+  };
+
+  const saveCommunitySettings = async () => {
+    if (!activeCommunity?.id) return;
+    try {
+      setCommunitySaving(true);
+      const res = await api.put(`/communities/${activeCommunity.id}`, {
+        name: communityManageName,
+        purpose: communityManagePurpose,
+        profilePicture: communityManageProfilePicture,
+      });
+      const nextGroup = { ...(activeCommunity || {}), ...(res.data?.community || {}) };
+      setActiveCommunity(nextGroup);
+      setActiveCommunityDetails((prev: any) => ({ ...(prev || {}), ...(res.data?.community || {}) }));
+      setMyPublicGroups((prev) => upsertGroup(prev, nextGroup));
+      setCommunityDirectory((prev) => upsertGroup(prev, nextGroup));
+      setPublicGroupResults((prev) => (prev || []).map((x: any) => (String(x.id) === String(nextGroup.id) ? { ...x, ...nextGroup } : x)));
+      setMsg('Community updated');
+      setCommunityManageOpen(false);
+    } catch (err: any) {
+      setMsg(err?.response?.data?.message || 'Failed to update community');
+    } finally {
+      setCommunitySaving(false);
+    }
+  };
+
+  const removeCommunityMember = async (memberId: string) => {
+    if (!activeCommunity?.id || !memberId) return;
+    if (!window.confirm('Remove this member from the community?')) return;
+    try {
+      setCommunityRemovingMemberId(memberId);
+      await api.delete(`/communities/${activeCommunity.id}/members/${memberId}`);
+      await loadCommunityDetails(String(activeCommunity.id));
+      setMsg('Member removed');
+    } catch (err: any) {
+      setMsg(err?.response?.data?.message || 'Failed to remove member');
+    } finally {
+      setCommunityRemovingMemberId('');
+    }
+  };
+
+  const createCommunityPost = async () => {
+    if (!activeCommunity?.id) return;
+    if (!communityPostContent.trim() && !communityPostImage) {
+      setMsg('Nothing to post');
+      return;
+    }
+    try {
+      setCommunityPosting(true);
+      const formData = new FormData();
+      formData.append('communityId', String(activeCommunity.id));
+      if (communityPostContent.trim()) formData.append('content', communityPostContent.trim());
+      if (communityPostImage) formData.append('image', communityPostImage);
+      const res = await api.post('/posts', formData);
+      setCommunityPostContent('');
+      setCommunityPostImage(null);
+      try {
+        if (communityPostImageInputRef.current) communityPostImageInputRef.current.value = '';
+      } catch { }
+      const [createdCommunityPost] = withCommunityMeta([res.data], activeCommunity);
+      if (createdCommunityPost) {
+        setCommunityPosts((prev) => [createdCommunityPost, ...prev]);
+      }
+      await fetchPosts();
+      setMsg('Community post created');
+    } catch (err: any) {
+      setMsg(err?.response?.data?.message || 'Failed to create community post');
+    } finally {
+      setCommunityPosting(false);
+    }
+  };
+
+  const leaveCommunity = async (communityId: string) => {
+    if (!communityId) return;
+    setMyPublicGroups((prev) => prev.filter((item: any) => String(item.id) !== String(communityId)));
+    setCommunityDirectory((prev) => (prev || []).map((item: any) => (
+      String(item.id) === String(communityId) ? { ...item, isMember: false } : item
+    )));
+    if (String(activeCommunity?.id || '') === String(communityId)) {
+      setActiveCommunity(null);
+      setActiveCommunityDetails(null);
+      setCommunityPosts([]);
+    }
+    setMsg('Left community view');
   };
 
   const loadNotifications = async () => {
@@ -2005,21 +2243,22 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       if (!statusContent.trim() && !statusMediaUrl) return setMsg('Nothing to post');
       const payload: any = { content: statusContent.trim() };
       if (statusMediaUrl) {
-        // Use the URL returned from server upload, not base64
         payload.mediaUrl = statusMediaUrl;
         if (statusMediaType) payload.mediaType = statusMediaType;
       }
 
       const res = await api.post('/status', payload);
 
-      setStatuses((prev) => [{ id: res.data.statusId || res.data.statusId, userId: me?.id, content: statusContent.trim(), mediaUrl: statusMediaUrl, mediaType: statusMediaType, createdAt: new Date().toISOString() }, ...prev]);
+      if (res.data.streak !== undefined) setMyStreak(res.data.streak);
+      setStatuses((prev) => [{ id: res.data.statusId, userId: me?.id, content: statusContent.trim(), mediaUrl: statusMediaUrl, mediaType: statusMediaType, createdAt: new Date().toISOString(), streak: res.data.streak }, ...prev]);
       setStatusContent('');
       setStatusMediaUrl('');
       setStatusMediaType('');
       setSelectedFileName('');
-      setMsg('Status posted');
+      setStatusFormOpen(false);
+      setMsg(`✅ Learning posted! 🔥 ${res.data.streak ?? myStreak} day streak!`);
     } catch (err: any) {
-      setMsg(err?.response?.data?.message || 'Failed to post status');
+      setMsg(err?.response?.data?.message || 'Failed to post');
     }
   };
 
@@ -2098,25 +2337,57 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
   const fetchPosts = useCallback(async () => {
     try {
-      const res = await api.get('/posts');
-      console.log('fetchPosts response:', res.data);
-      if (res.data && res.data.length > 0) {
-        console.log('First post:', res.data[0]);
+      const basePostsPromise = api.get('/posts');
+      const communitiesPromise = communityDirectory.length
+        ? Promise.resolve({ data: { communities: communityDirectory } })
+        : api.get('/communities');
+
+      const [basePostsRes, communitiesRes] = await Promise.all([basePostsPromise, communitiesPromise]);
+      const basePosts = Array.isArray(basePostsRes.data) ? basePostsRes.data : [];
+      const communities = Array.isArray(communitiesRes.data?.communities) ? communitiesRes.data.communities : [];
+
+      const communityPostResults = await Promise.allSettled(
+        communities.map(async (community: any) => {
+          const communityId = getCommunityId(community);
+          if (!communityId) return [];
+          const res = await api.get(`/posts?communityId=${encodeURIComponent(communityId)}`);
+          return withCommunityMeta(res.data, community);
+        })
+      );
+
+      const mergedById = new Map<string, any>();
+      for (const post of basePosts) {
+        const postId = String(post?._id || post?.id || '');
+        if (postId) mergedById.set(postId, post);
       }
-      setPosts(res.data);
+      for (const result of communityPostResults) {
+        if (result.status !== 'fulfilled') continue;
+        for (const post of result.value) {
+          const postId = String(post?._id || post?.id || '');
+          if (!postId) continue;
+          mergedById.set(postId, post);
+        }
+      }
+
+      const mergedPosts = Array.from(mergedById.values()).sort((a: any, b: any) => {
+        const aTime = new Date(a?.createdAt || 0).getTime();
+        const bTime = new Date(b?.createdAt || 0).getTime();
+        return bTime - aTime;
+      });
+
+      setPosts(mergedPosts);
     } catch (err: any) {
       console.error('fetchPosts error:', err);
       setMsg(err?.response?.data?.message || 'Failed to fetch posts');
     }
-  }, []);
+  }, [communityDirectory]);
 
   const resetPostComposer = () => {
     setPostContent('');
     setPostImage(null);
     setPostSong('');
     setPostPrivate(false);
-    setPostIsLocked(false);
-    setPostLockedPrice(0);
+
     try {
       if (postImageInputRef.current) postImageInputRef.current.value = '';
     } catch { }
@@ -2125,9 +2396,6 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   const createPost = async () => {
     if (!postContent.trim() && !postImage && !postSong) return setMsg('Nothing to post');
 
-    if (postIsLocked && postLockedPrice <= 0) {
-      return setMsg('Please enter a valid price for locked post');
-    }
 
     // Validate file size for mobile compatibility
     if (postImage) {
@@ -2138,15 +2406,14 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       }
     }
 
-    console.log('Creating post with:', { content: postContent, hasSong: !!postSong, songValue: postSong, isLocked: postIsLocked, lockedPrice: postLockedPrice });
+    console.log('Creating post with:', { content: postContent, hasSong: !!postSong, songValue: postSong });
     setPostLoading(true);
     try {
       const formData = new FormData();
       if (postContent.trim()) formData.append('content', postContent);
       formData.append('anonymous', String(postAnonymous));
       formData.append('isPrivate', String(postPrivate));
-      formData.append('isLocked', String(postIsLocked));
-      if (postIsLocked) formData.append('lockedPrice', String(postLockedPrice));
+
       if (postImage) formData.append('image', postImage);
       if (postSong) formData.append('songUrl', postSong);
 
@@ -2157,8 +2424,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       setPostImage(null);
       setPostSong('');
       setPostPrivate(false);
-      setPostIsLocked(false);
-      setPostLockedPrice(0);
+
       setMsg('Post created');
       try {
         if (postImageInputRef.current) postImageInputRef.current.value = '';
@@ -2182,6 +2448,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       setPostSearchResults([]);
       setSelectedPostUsername(null);
       setSelectedUserProfile(null);
+      setSelectedCommunitySearch(null);
       return;
     }
 
@@ -2190,6 +2457,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     setPostSearchOpen(true);
     setSelectedPostUsername(username);
     setSelectedUserProfile(null);
+    setSelectedCommunitySearch(null);
     setViewingOwnPosts(false);
 
     try {
@@ -2221,8 +2489,93 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     }
   };
 
+  const openCommunityPostsSearch = async (community: any, queryOverride?: string) => {
+    const communityId = getCommunityId(community);
+    const communityName = getCommunityName(community);
+    if (!communityId || !communityName) return;
+
+    setPostSearchQuery(String(queryOverride || communityName));
+    setPostSearchOpen(true);
+    setSelectedPostUsername(null);
+    setSelectedUserProfile(null);
+    setSelectedCommunitySearch(community);
+    setViewingOwnPosts(false);
+
+    try {
+      setPostIsSearching(true);
+      const res = await api.get(`/posts?communityId=${encodeURIComponent(communityId)}`);
+      setPostSearchResults(withCommunityMeta(res.data, community));
+    } catch (err: any) {
+      setMsg(err?.response?.data?.message || 'Failed to search community posts');
+      setPostSearchResults([]);
+      setSelectedCommunitySearch(null);
+    } finally {
+      setPostIsSearching(false);
+    }
+  };
+
   const searchUserPosts = async () => {
-    return openUserPosts(postSearchQuery);
+    const query = String(postSearchQuery || '').trim();
+    if (!query) {
+      clearPostSearch();
+      return;
+    }
+
+    const normalizedQuery = query.replace(/^r\//i, '').trim().toLowerCase();
+    const localCommunityMatch = [...communityDirectory, ...myPublicGroups].find((community: any) => {
+      const name = getCommunityName(community).trim().toLowerCase();
+      return name && name === normalizedQuery;
+    });
+
+    if (/^r\//i.test(query) && localCommunityMatch) {
+      return openCommunityPostsSearch(localCommunityMatch, query);
+    }
+
+    try {
+      setPostIsSearching(true);
+
+      const [userPostsRes, communitiesRes] = await Promise.all([
+        api.get(`/posts/user/${encodeURIComponent(query)}`).catch(() => ({ data: [] })),
+        api.get(`/communities/search?q=${encodeURIComponent(normalizedQuery || query)}`).catch(() => ({ data: { communities: [] } })),
+      ]);
+
+      const userPosts = Array.isArray(userPostsRes.data) ? userPostsRes.data : [];
+      const communities = Array.isArray(communitiesRes.data?.communities) ? communitiesRes.data.communities : [];
+      const exactCommunityMatch = communities.find((community: any) => getCommunityName(community).trim().toLowerCase() === normalizedQuery);
+      const matchedCommunity = localCommunityMatch || exactCommunityMatch || communities[0];
+
+      if (/^r\//i.test(query) || (!userPosts.length && matchedCommunity)) {
+        setPostIsSearching(false);
+        return openCommunityPostsSearch(matchedCommunity, query);
+      }
+
+      setPostSearchQuery(query);
+      setPostSearchOpen(true);
+      setSelectedPostUsername(query);
+      setSelectedUserProfile(null);
+      setSelectedCommunitySearch(null);
+      setViewingOwnPosts(false);
+      setPostSearchResults(userPosts);
+
+      const userId =
+        userPosts?.[0]?.user?._id ||
+        userPosts?.[0]?.user?.id ||
+        '';
+
+      if (userId) {
+        try {
+          const profileRes = await api.get(`/users/profile/${userId}`);
+          setSelectedUserProfile(profileRes.data.user);
+        } catch (err) {
+          console.error('Failed to fetch user profile:', err);
+        }
+      }
+    } catch (err: any) {
+      setMsg(err?.response?.data?.message || 'Failed to search posts');
+      clearPostSearch();
+    } finally {
+      setPostIsSearching(false);
+    }
   };
 
   const clearPostSearch = () => {
@@ -2230,6 +2583,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     setPostSearchResults([]);
     setSelectedPostUsername(null);
     setSelectedUserProfile(null);
+    setSelectedCommunitySearch(null);
   };
 
   const viewOwnPosts = () => {
@@ -2239,6 +2593,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       setPostSearchQuery('');
       setPostSearchResults([]);
       setSelectedPostUsername(null);
+      setSelectedCommunitySearch(null);
     }
   };
 
@@ -2247,6 +2602,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     try {
       await api.delete(`/posts/${postId}`);
       setPosts((prev) => prev.filter((p) => p._id !== postId));
+      setCommunityPosts((prev) => prev.filter((p: any) => String(p._id || p.id) !== String(postId)));
       setMsg('Post deleted');
     } catch (err: any) {
       setMsg(err?.response?.data?.message || 'Failed to delete post');
@@ -2266,6 +2622,9 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
       await api.post(`/posts/${postId}/react`, { emoji });
       fetchPosts();
+      if (activeCommunity?.id) {
+        loadCommunityPosts(String(activeCommunity.id));
+      }
     } catch (err: any) {
       setMsg(err?.response?.data?.message || 'Failed to add reaction');
     }
@@ -2280,6 +2639,9 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       await api.post(`/posts/${postId}/comment`, { content: text });
       setCommentText(prev => ({ ...prev, [postId]: '' }));
       fetchPosts(); // Refresh posts to get updated comments
+      if (activeCommunity?.id) {
+        loadCommunityPosts(String(activeCommunity.id));
+      }
     } catch (err: any) {
       setMsg(err?.response?.data?.message || 'Failed to add comment');
     } finally {
@@ -2378,103 +2740,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     }
   };
 
-  const handleUnlockPost = async (postId: string) => {
-    try {
-      setUnlockInitiating(true);
-      const orderRes = await api.post(`/posts/${postId}/unlock/order`);
-      setUnlockDialog({
-        postId,
-        orderId: String(orderRes.data?.orderId || ''),
-        amount: Number(orderRes.data?.amount || 0),
-        key: String(orderRes.data?.key || ''),
-        upiVpa: orderRes.data?.upiVpa,
-        payeeName: orderRes.data?.payeeName,
-      });
-    } catch (err: any) {
-      setMsg(err?.response?.data?.message || 'Failed to initiate payment');
-      console.error('Payment error:', err);
-    } finally {
-      setUnlockInitiating(false);
-    }
-  };
 
-  const ensureRazorpayScript = () =>
-    new Promise<void>((resolve, reject) => {
-      if ((window as any).Razorpay) return resolve();
-      const existing = document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]');
-      if (existing) {
-        existing.addEventListener('load', () => resolve());
-        existing.addEventListener('error', () => reject(new Error('Failed to load Razorpay')));
-        return;
-      }
-      const script = document.createElement('script');
-      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-      script.async = true;
-      script.onload = () => resolve();
-      script.onerror = () => reject(new Error('Failed to load Razorpay'));
-      document.body.appendChild(script);
-    });
-
-  const startUnlockPayment = async (method?: any) => {
-    if (!unlockDialog?.postId || !unlockDialog?.orderId || !unlockDialog?.key) {
-      setMsg('Payment is not ready. Please try again.');
-      return;
-    }
-
-    try {
-      await ensureRazorpayScript();
-      const postId = unlockDialog.postId;
-      const orderId = unlockDialog.orderId;
-      const amount = unlockDialog.amount;
-
-      const options: any = {
-        key: unlockDialog.key,
-        order_id: orderId,
-        name: unlockDialog.payeeName || 'Locked Post',
-        description: `Unlock post for ₹${amount}`,
-        amount: amount * 100,
-        currency: 'INR',
-        handler: async (response: any) => {
-          try {
-            const verifyRes = await api.post(`/posts/${postId}/unlock/verify`, {
-              orderId,
-              paymentId: response.razorpay_payment_id,
-              signature: response.razorpay_signature,
-            });
-            if (verifyRes.data.ok) {
-              setMsg('Post unlocked successfully!');
-              setUnlockDialog(null);
-              fetchPosts();
-            }
-          } catch (err: any) {
-            setMsg(err?.response?.data?.message || 'Payment verification failed');
-          }
-        },
-        prefill: {
-          name: me?.name || '',
-          email: me?.email || '',
-        },
-        notes: {
-          postId,
-        },
-        theme: {
-          color: '#3b82f6',
-        },
-      };
-
-      if (method) {
-        options.method = method;
-      }
-
-      const razorpay = new (window as any).Razorpay(options);
-      razorpay.on('payment.failed', (resp: any) => {
-        setMsg(resp?.error?.description || 'Payment failed');
-      });
-      razorpay.open();
-    } catch (e: any) {
-      setMsg(e?.message || 'Failed to start payment');
-    }
-  };
 
   // SongSelector component for listening and choosing songs
   const SongSelector: React.FC<{
@@ -2607,7 +2873,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   };
 
   return (
-    <div className="grid grid-cols-1 gap-4 pb-20 relative">
+    <div className="grid grid-cols-1 gap-0 pb-20 relative">
       {/* Notification Display */}
       {notification && (
         <div className="fixed top-4 right-4 bg-blue-500 text-black px-4 py-3 rounded-lg shadow-lg z-50 animate-pulse">
@@ -2670,6 +2936,24 @@ export default function Message({ groupName }: { groupName?: string | null }) {
             Sociovio {me ? `— ${me.username || me.name}` : ''}
           </h1>
           <div className="flex items-center space-x-3 relative">
+            {/* Create Post button — only shown in posts mode */}
+            {mode === 'posts' && (
+              <button
+                onClick={() => {
+                  if (isPostComposerOpen) {
+                    setIsPostComposerOpen(false);
+                    resetPostComposer();
+                  } else {
+                    setIsPostComposerOpen(true);
+                  }
+                }}
+                className="w-9 h-9 flex items-center justify-center rounded-full bg-blue-500 hover:bg-blue-600 active:scale-95 transition-all duration-150 text-white text-2xl font-light leading-none shadow-md"
+                title={isPostComposerOpen ? 'Close composer' : 'Create post'}
+                aria-label={isPostComposerOpen ? 'Close post composer' : 'Open post composer'}
+              >
+                {isPostComposerOpen ? '✕' : '+'}
+              </button>
+            )}
             <div className="relative z-30">
               <button
                 onClick={() => {
@@ -2719,7 +3003,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                 </div>
 
                 <aside
-                  className={`fixed top-0 right-0 z-[450] h-full w-64 max-w-sm bg-white dark:bg-gray-900 shadow-xl transform transition-transform duration-300 ease-in-out ${headerMenuOpen ? 'translate-x-0' : 'translate-x-full'}`}
+                  className={`fixed top-0 right-0 z-[450] h-full w-64 max-w-sm bg-white dark:bg-gray-900 shadow-xl transform transition-transform duration-300 ease-in-out overflow-y-auto ${headerMenuOpen ? 'translate-x-0' : 'translate-x-full'}`}
                   aria-hidden={!headerMenuOpen}
                 >
                   <div className="p-4 flex items-center justify-between border-b border-gray-200 dark:border-gray-700">
@@ -2728,7 +3012,18 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                       ✕
                     </button>
                   </div>
-                  <div className="p-3 space-y-1">
+                  <div className="p-3 space-y-1 pb-6">
+                    <button
+                      onClick={() => {
+                        setShowCreateGroup(true);
+                        setHeaderMenuOpen(false);
+                        setMode('communities');
+                      }}
+                      className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:bg-black rounded"
+                    >
+                      <span>🌐</span>
+                      <span>Create Community</span>
+                    </button>
                     <button
                       onClick={async () => {
                         try {
@@ -3106,6 +3401,102 @@ export default function Message({ groupName }: { groupName?: string | null }) {
               </div>
             )}
 
+            {communityManageOpen && activeCommunity && (
+              <div className="fixed inset-0 z-[10000] flex items-center justify-center">
+                <div className="absolute inset-0 bg-black/60" onClick={() => !communitySaving && setCommunityManageOpen(false)} />
+                <div className="relative w-[94vw] max-w-2xl max-h-[88vh] overflow-y-auto bg-white rounded-2xl shadow-xl p-5 text-black">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="font-semibold text-lg">Manage Community</div>
+                    <button onClick={() => setCommunityManageOpen(false)} className="text-gray-500">✕</button>
+                  </div>
+                  <div className="space-y-3">
+                    <input
+                      value={communityManageName}
+                      onChange={(e) => setCommunityManageName(e.target.value)}
+                      placeholder="Community name"
+                      className="w-full border rounded-lg px-3 py-2"
+                    />
+                    <textarea
+                      value={communityManagePurpose}
+                      onChange={(e) => setCommunityManagePurpose(e.target.value)}
+                      placeholder="Community purpose"
+                      className="w-full border rounded-lg px-3 py-2 min-h-24"
+                    />
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          try {
+                            setMsg('Uploading community image...');
+                            const url = await uploadCommunityProfilePicture(file);
+                            setCommunityManageProfilePicture(url);
+                            setMsg('');
+                          } catch (err: any) {
+                            setMsg(err?.response?.data?.message || 'Failed to upload community image');
+                          }
+                        }}
+                        className="block w-full text-sm"
+                      />
+                      {communityManageProfilePicture && (
+                        <img src={resolveMediaUrl(communityManageProfilePicture)} alt="community" className="w-14 h-14 rounded-full object-cover border" />
+                      )}
+                    </div>
+                    <div className="flex items-center justify-end gap-2">
+                      <button onClick={() => setCommunityManageOpen(false)} className="px-4 py-2 bg-gray-200 rounded-lg">
+                        Cancel
+                      </button>
+                      <button onClick={saveCommunitySettings} disabled={communitySaving} className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50">
+                        {communitySaving ? 'Saving...' : 'Save'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-6">
+                    <div className="font-semibold mb-3">Members</div>
+                    <div className="space-y-2">
+                      {(activeCommunityDetails?.members || []).map((member: any) => {
+                        const memberId = String(member?._id || member?.id || '');
+                        const isAdmin = memberId === String(activeCommunityDetails?.createdBy?._id || activeCommunityDetails?.createdBy?.id || '');
+                        return (
+                          <div key={memberId} className="flex items-center justify-between gap-3 border rounded-xl p-3">
+                            <div className="flex items-center gap-3">
+                              {member?.profilePicture ? (
+                                <img src={resolveMediaUrl(member.profilePicture)} alt={member?.username || member?.name || 'member'} className="w-10 h-10 rounded-full object-cover border" />
+                              ) : (
+                                <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center font-semibold">
+                                  {String(member?.username || member?.name || 'U').charAt(0).toUpperCase()}
+                                </div>
+                              )}
+                              <div>
+                                <div className="text-sm font-medium">
+                                  {member?.username || member?.name || 'Member'} {isAdmin ? '(Admin)' : ''}
+                                </div>
+                                {member?.name && member?.username && member.name !== member.username && (
+                                  <div className="text-xs text-gray-500">{member.name}</div>
+                                )}
+                              </div>
+                            </div>
+                            {!isAdmin && (
+                              <button
+                                onClick={() => removeCommunityMember(memberId)}
+                                disabled={communityRemovingMemberId === memberId}
+                                className="px-3 py-2 bg-red-600 text-white rounded-lg text-sm disabled:opacity-50"
+                              >
+                                {communityRemovingMemberId === memberId ? 'Removing...' : 'Remove'}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Hidden file inputs used by the + attach menu */}
             <input ref={fileInputRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={handleMessageFileChange} />
             <input
@@ -3288,30 +3679,65 @@ export default function Message({ groupName }: { groupName?: string | null }) {
         </div>
       )}
 
-      {mode === 'groups' && showCreateGroup && (
+      {mode === 'communities' && showCreateGroup && (
         <div className="fixed top-4 left-4 z-50">
           <div className="bg-white border border-gray-300 rounded-lg shadow-lg p-4 min-w-80">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold text-gray-800">Create New Group</h3>
+              <h3 className="font-semibold text-gray-800">Create Community</h3>
               <button
-                onClick={() => setShowCreateGroup(false)}
+                onClick={() => {
+                  setShowCreateGroup(false);
+                  resetCreateCommunityForm();
+                }}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
                 ×
               </button>
             </div>
-            <div className="flex items-center space-x-2">
+            <div className="space-y-3">
               <input
                 value={newPublicGroupName}
                 onChange={(e) => setNewPublicGroupName(e.target.value)}
-                placeholder="Group name (e.g. Cricket Fans)"
-                className="flex-1 p-2 border rounded text-black"
+                placeholder="Community name"
+                className="w-full p-2 border rounded text-black"
                 onKeyPress={(e) => e.key === 'Enter' && createAndEnterPublicGroup()}
               />
+              <textarea
+                value={newPublicGroupPurpose}
+                onChange={(e) => setNewPublicGroupPurpose(e.target.value)}
+                placeholder="Purpose of community"
+                className="w-full p-2 border rounded text-black min-h-24"
+              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    try {
+                      setMsg('Uploading community image...');
+                      const url = await uploadCommunityProfilePicture(file);
+                      setNewPublicGroupProfilePicture(url);
+                      setMsg('');
+                    } catch (err: any) {
+                      setMsg(err?.response?.data?.message || 'Failed to upload community image');
+                    }
+                  }}
+                  className="block w-full text-sm text-black"
+                />
+              </div>
+              {newPublicGroupProfilePicture && (
+                <img
+                  src={resolveMediaUrl(newPublicGroupProfilePicture)}
+                  alt="community"
+                  className="w-16 h-16 rounded-full object-cover border"
+                />
+              )}
               <button
                 onClick={createAndEnterPublicGroup}
                 disabled={isCreatingPublicGroup}
-                className="px-3 py-2 bg-green-600 text-white rounded disabled:opacity-50 hover:bg-green-700"
+                className="w-full px-3 py-2 bg-green-600 text-white rounded disabled:opacity-50 hover:bg-green-700"
               >
                 {isCreatingPublicGroup ? '...' : 'Create'}
               </button>
@@ -3320,237 +3746,424 @@ export default function Message({ groupName }: { groupName?: string | null }) {
         </div>
       )}
 
-      {mode === 'groups' && (
-        <div>
-          {/* Chat Mode Toggle */}
+      {mode === 'communities' && (
+        <div className="space-y-4">
           <div className="flex items-center gap-1 bg-gray-800/60 rounded-full p-1 mb-4">
             <button
-              onClick={() => { if (isPrivateChatPage) history.pushState(null, '', `/message`); setMode('private'); }}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
-                mode === 'private' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
-              }`}
+              onClick={() => setMode('private')}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 text-gray-400 hover:text-white"
             >
               👤 Private
             </button>
             <button
-              onClick={() => { if (isPrivateChatPage) history.pushState(null, '', `/message`); setMode('groups'); setShowCreateGroup(false); }}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
-                mode === 'groups' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
-              }`}
+              onClick={() => setMode('communities')}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 bg-blue-600 text-white shadow"
             >
-              👥 Group
+              🌐 Community
             </button>
             <button
-              onClick={() => { if (isPrivateChatPage) history.pushState(null, '', `/message`); setMode('random'); }}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
-                mode === 'random' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
-              }`}
+              onClick={() => setMode('random')}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 text-gray-400 hover:text-white"
             >
               🕵️ Random
             </button>
           </div>
-          {/* Create Group Button */}
-          {!groupName && (
-            <button
-              onClick={() => setShowCreateGroup(true)}
-              className="w-full mb-4 flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-all duration-200 shadow-md"
-            >
-              <span className="text-lg leading-none">+</span> Create New Group
-            </button>
-          )}
-          {!groupName && (
-            <>
 
-              <div className="mb-4 p-3 border rounded bg-black/10">
-                <div className="font-semibold mb-2">Search groups</div>
-                <div className="flex items-center space-x-2">
-                  <input
-                    value={publicGroupSearch}
-                    onChange={(e) => setPublicGroupSearch(e.target.value)}
-                    placeholder="Search by group name"
-                    className="flex-1 p-2 border rounded text-black"
-                  />
-                  <button
-                    onClick={searchPublicGroups}
-                    disabled={isSearchingPublicGroups}
-                    className="px-3 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
-                  >
-                    {isSearchingPublicGroups ? '...' : 'Search'}
-                  </button>
+          <button
+            onClick={() => {
+              setShowCreateGroup(true);
+            }}
+            className="w-full mb-4 flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-all duration-200 shadow-md"
+          >
+            <span className="text-lg leading-none">+</span> Create Community
+          </button>
+
+           <div className="grid grid-cols-1 xl:grid-cols-[320px_minmax(0,1fr)] gap-4">
+            <aside className="space-y-4">
+              <div className="rounded-3xl border border-slate-200 bg-white/95 shadow-sm overflow-hidden">
+                <div className="px-4 py-3 border-b border-slate-200 bg-slate-50">
+                  <div className="font-semibold text-slate-900">Discover communities</div>
+                  <div className="text-xs text-slate-500 mt-0.5">Independent from groups. Join communities and post to their feed.</div>
                 </div>
-
-                {publicGroupResults.length > 0 && (
-                  <ul className="mt-3 space-y-2">
-                    {publicGroupResults.map((g) => (
-                      <li key={g.id} className="p-2 border rounded flex justify-between items-center">
-                        <div className="font-medium">{g.groupName}</div>
-                        {g.isMember ? (
-                          <button onClick={() => enterGroup(g)} className="px-3 py-1 bg-blue-600 text-white rounded">Enter</button>
-                        ) : (
-                          <button onClick={() => joinAndEnterPublicGroup(g)} className="px-3 py-1 bg-green-600 text-white rounded">Join</button>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
-              <h2 className="text-lg font-semibold">Nearby groups</h2>
-
-              <ul className="mt-2 space-y-2">
-                {groups.map((g) => (
-                  <li key={g.id} className="p-2 border rounded flex justify-between items-center">
-                    <div>
-                      <div className="font-medium">
-                        {g.groupName}
-                        {g.isCreator && <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Created by you</span>}
-                      </div>
-                      <div className="text-sm text-gray-500">
-                        {g.groupType === 'PUBLIC' ? 'Public group' : `${g.distanceMeters}m away`}
-                      </div>
-                    </div>
-                    <div className="space-x-2">
-                      {g.isMember ? (
-                        <>
-                          <button onClick={() => enterGroup(g)} className="px-3 py-1 bg-blue-600 text-white rounded">Enter</button>
-                          {g.isCreator && (
-                            <button onClick={() => deleteOwnedGroup(g)} className="px-3 py-1 bg-red-600 text-white rounded">Delete</button>
-                          )}
-                        </>
-                      ) : (
-                        <button onClick={() => g.groupType === 'PUBLIC' ? joinAndEnterPublicGroup(g) : joinAndEnter(g)} className="px-3 py-1 bg-green-600 text-white rounded">Join</button>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-
-          {activeGroup && (
-            <div className={groupName ? '' : 'mt-4'}>
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold">Group: {activeGroup.groupName}</h3>
-                {activeGroup.isCreator && (
-                  <button onClick={() => deleteOwnedGroup(activeGroup)} className="px-3 py-1 bg-red-600 text-white rounded">
-                    Delete Group
-                  </button>
-                )}
-              </div>
-              <div
-                className="h-96 overflow-auto hide-scrollbar border rounded p-2 mt-2 bg-white text-black"
-                style={currentChatWallpaper || wallpaperUrl ? { backgroundImage: `url(${currentChatWallpaper || wallpaperUrl})`, backgroundSize: 'cover' } : undefined}
-              >
-                {messages.length === 0 && <div className="text-sm text-gray-500">No messages yet — start the conversation</div>}
-                {messages.map((m) => {
-                  const isMe = m.senderId === 'me' || (m.sender && String(m.sender.id) === String(me?.id));
-                  const senderName = isMe ? 'You' : (m.sender?.username || m.senderId);
-                  const senderId = m.sender?._id || m.sender?.id || m.senderId;
-                  return (
-                    <div key={m.id} className={`mb-2 ${isMe ? 'text-right' : ''} text-black`}>
-                      <div className="text-sm text-black">
-                        <strong>
-                          {isMe ? (
-                            senderName
-                          ) : (
-                            <span
-                              className="cursor-pointer hover:underline"
-                              onClick={() => senderId && (window.location.pathname = `/profile/${senderId}`)}
-                            >
-                              {senderName}
-                            </span>
-                          )}
-                        </strong>
-                      </div>
-                      <div className="text-md" style={{ color: textColor, fontSize: getFontSize(textSize) }}>
-                        {m.voiceUrl ? (
-                          <div className="flex items-center space-x-2">
-                            <span className="text-sm text-gray-500">🎵 Voice message</span>
-                            <audio controls className="max-w-xs">
-                              <source src={resolveMediaUrl(m.voiceUrl)} type="audio/mpeg" />
-                              Your browser does not support the audio element.
-                            </audio>
-                          </div>
-                        ) : m.mediaUrl ? (
-                          (m.mediaType === 'image' || String(m.mediaUrl).startsWith('data:image') || String(m.mediaUrl).match(/\.(png|jpe?g|gif|webp)(\?|$)/i)) ? (
-                            <img src={resolveMediaUrl(m.mediaUrl)} alt="media" className="max-h-40 mx-auto" />
-                          ) : (
-                            <video src={resolveMediaUrl(m.mediaUrl)} controls autoPlay muted className="max-h-40 mx-auto" />
-                          )
-                        ) : (
-                          m.message
-                        )}
-                      </div>
-                      <div className="text-xs text-gray-400">{new Date(m.createdAt).toLocaleTimeString()}</div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="mt-2">
-                <div className="flex items-center space-x-2">
-                  {/* <button
-                    onClick={() => setIsVoiceMode(!isVoiceMode)}
-                    className={`px-3 py-2 rounded ${isVoiceMode ? 'bg-green-600 text-white' : 'bg-gray-200 text-black'}`}
-                    title={isVoiceMode ? 'Voice mode enabled' : 'Enable voice mode'}
-                  >
-                    🎤
-                  </button> */}
-                  <div className="relative flex-1">
-                    <input
-                      value={text}
-                      onChange={(e) => setText(e.target.value)}
-                      placeholder={
-                        peerE2EEState === 'ready'
-                          ? 'Type a message'
-                          : peerE2EEState === 'missing'
-                            ? 'Peer has not enabled encrypted chat yet'
-                            : peerE2EEState === 'changed'
-                              ? 'Peer key changed. Encrypted chat blocked.'
-                              : 'Preparing encrypted chat…'
-                      }
-                      className="w-full p-2 border rounded text-black disabled:opacity-60"
-                    />
-                  </div>
-                  <button onClick={openFile} disabled={isUploadingMessageMedia} className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">📎</button>
-                  <button onClick={sendMessage} disabled={isUploadingMessageMedia} className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed">{isUploadingMessageMedia ? '⏳' : '➤'}</button>
-                </div>
-                <div className="mt-2">
+                <div className="p-4 space-y-3">
                   <div className="flex items-center space-x-2">
-                    {/* <button onClick={openFile} disabled={isUploadingMessageMedia} className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">{isUploadingMessageMedia ? '⏳ Uploading...' : '📎'}</button> */}
-
-                    {messageSelectedFileName && <div className="text-sm text-gray-500">{isUploadingMessageMedia ? 'Uploading: ' : 'Selected: '}{messageSelectedFileName}</div>}
+                    <input
+                      value={publicGroupSearch}
+                      onChange={(e) => setPublicGroupSearch(e.target.value)}
+                      placeholder="Search by community name"
+                      className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-black"
+                    />
+                    <button
+                      onClick={searchPublicGroups}
+                      disabled={isSearchingPublicGroups}
+                      className="px-3 py-2 bg-slate-900 text-white rounded-xl disabled:opacity-50"
+                    >
+                      {isSearchingPublicGroups ? '...' : 'Search'}
+                    </button>
                   </div>
-                  {messageMediaUrl && (
-                    <div className="mt-2">
-                      {messageMediaType === 'image' || messageMediaUrl.startsWith('data:image') ? (
-                        <img src={resolveMediaUrl(messageMediaUrl)} alt="preview" className="max-h-40" />
-                      ) : (
-                        <video src={resolveMediaUrl(messageMediaUrl)} controls autoPlay muted className="max-h-40" />
+
+                  {(publicGroupSearch.trim() ? publicGroupResults : communityDirectory).slice(0, 12).map((g: any) => (
+                    <button
+                      key={g.id}
+                      onClick={() => g.isMember ? enterCommunity(g) : joinAndEnterPublicGroup(g)}
+                      className="w-full text-left rounded-2xl border border-slate-200 bg-white hover:bg-slate-50 transition p-3"
+                    >
+                      <div className="flex items-start gap-3">
+                        {g.profilePicture ? (
+                          <img src={resolveMediaUrl(g.profilePicture)} alt={g.name || 'community'} className="w-11 h-11 rounded-2xl object-cover border border-slate-200 flex-shrink-0" />
+                        ) : (
+                          <div className="w-11 h-11 rounded-2xl bg-orange-100 text-orange-700 flex items-center justify-center text-sm font-bold flex-shrink-0">
+                            {String(g.name || 'C').charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-slate-900 truncate">soc/{g.name || g.groupName}</div>
+                          <div className="text-xs text-slate-500 mt-0.5">{g.memberCount || 0} members</div>
+                          {g.purpose && <div className="text-xs text-slate-600 mt-1 line-clamp-2">{g.purpose}</div>}
+                        </div>
+                        <div className={`text-[11px] font-semibold px-2 py-1 rounded-full ${g.isMember ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                          {g.isMember ? 'Open' : 'Join'}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-slate-200 bg-white/95 shadow-sm overflow-hidden">
+                <div className="px-4 py-3 border-b border-slate-200 bg-slate-50">
+                  <div className="font-semibold text-slate-900">Your communities</div>
+                </div>
+                <div className="p-3 space-y-2">
+                  {myPublicGroups.length === 0 ? (
+                    <div className="text-sm text-slate-500 px-2 py-4">You have not joined any community yet.</div>
+                  ) : myPublicGroups.map((g: any) => (
+                    <button
+                      key={g.id}
+                      onClick={() => enterCommunity(g)}
+                      className={`w-full text-left rounded-2xl border px-3 py-3 transition ${String(activeCommunity?.id || '') === String(g.id) ? 'border-orange-300 bg-orange-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}
+                    >
+                      <div className="font-semibold text-slate-900 truncate">soc/{g.name || g.groupName}</div>
+                      <div className="text-xs text-slate-500 mt-1">{g.purpose || `${g.memberCount || 0} members`}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </aside>
+
+            <main className="space-y-4">
+              {!activeCommunity && (
+                <div className="rounded-[28px] overflow-hidden border border-slate-200 bg-white shadow-sm">
+                  <div className="px-6 py-8 bg-gradient-to-br from-orange-100 via-white to-slate-100">
+                    <div className="text-xs uppercase tracking-[0.22em] text-orange-700 font-semibold">Communities</div>
+                    <h2 className="mt-2 text-3xl font-black text-slate-900">post something valuable</h2>
+                    {/* <p className="mt-2 max-w-2xl text-sm text-slate-600">Communities are feed-based. Members join around a topic, then post to the community.</p> */}
+                  </div>
+                  <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {communityDirectory.slice(0, 6).map((community: any) => (
+                      <div key={community.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="flex items-center gap-3">
+                          {community.profilePicture ? (
+                            <img src={resolveMediaUrl(community.profilePicture)} alt={community.name} className="w-14 h-14 rounded-2xl object-cover border border-slate-200" />
+                          ) : (
+                            <div className="w-14 h-14 rounded-2xl bg-orange-100 text-orange-700 flex items-center justify-center text-lg font-bold">
+                              {String(community.name || 'C').charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <div className="text-lg font-bold text-slate-900 truncate">soc/{community.name}</div>
+                            <div className="text-xs text-slate-500">{community.memberCount || 0} members</div>
+                          </div>
+                        </div>
+                        <p className="mt-3 text-sm text-slate-600 min-h-[40px]">{community.purpose || 'A topic community waiting for its first strong thread.'}</p>
+                        <div className="mt-4 flex items-center gap-2">
+                          <button
+                            onClick={() => community.isMember ? enterCommunity(community) : joinAndEnterPublicGroup(community)}
+                            className="px-4 py-2 rounded-full bg-slate-900 text-white text-sm font-semibold"
+                          >
+                            {community.isMember ? 'Open Feed' : 'Join Community'}
+                          </button>
+                          {community.isCreator && <span className="text-xs text-orange-700 font-semibold">Admin</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {activeCommunity && (
+                <>
+                  <div className="rounded-[28px] overflow-hidden border border-slate-200 bg-white shadow-sm">
+                    <div className="h-20 bg-gradient-to-r from-orange-500 via-red-400 to-amber-300" />
+                    <div className="px-5 pb-5">
+                      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 -mt-8">
+                        <div className="flex items-end gap-4">
+                          {activeCommunityDetails?.profilePicture ? (
+                            <img src={resolveMediaUrl(activeCommunityDetails.profilePicture)} alt={activeCommunityDetails.name} className="w-20 h-20 rounded-[24px] object-cover border-4 border-white shadow-sm bg-white" />
+                          ) : (
+                            <div className="w-20 h-20 rounded-[24px] bg-white border-4 border-white shadow-sm flex items-center justify-center text-2xl font-black text-orange-700">
+                              {String(activeCommunityDetails?.name || activeCommunity.name || 'C').charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="pb-1">
+                            <div className="text-2xl font-black text-slate-900">soc/{activeCommunityDetails?.name || activeCommunity.name}</div>
+                            <div className="text-sm text-slate-500">{activeCommunityDetails?.memberCount || 0} members</div>
+                            <div className="mt-1 text-sm text-slate-700 max-w-2xl">{activeCommunityDetails?.purpose || 'No purpose added yet.'}</div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setActiveCommunity(null)}
+                            className="px-4 py-2 rounded-full border border-slate-300 bg-white text-slate-800 text-sm font-semibold"
+                          >
+                            Back To Discover
+                          </button>
+                          {activeCommunity.isCreator && (
+                            <button onClick={() => setCommunityManageOpen(true)} className="px-4 py-2 rounded-full bg-amber-600 text-white text-sm font-semibold">
+                              Manage Community
+                            </button>
+                          )}
+                          {activeCommunity.isCreator && (
+                            <button
+                              onClick={async () => {
+                                if (!window.confirm(`Delete community "${activeCommunity.name || activeCommunity.groupName}"?`)) return;
+                                await api.delete(`/communities/${activeCommunity.id}`);
+                                setMyPublicGroups((prev) => prev.filter((item: any) => String(item.id) !== String(activeCommunity.id)));
+                                setCommunityDirectory((prev) => prev.filter((item: any) => String(item.id) !== String(activeCommunity.id)));
+                                setActiveCommunity(null);
+                                setActiveCommunityDetails(null);
+                                setCommunityPosts([]);
+                              }}
+                              className="px-4 py-2 rounded-full bg-red-600 text-white text-sm font-semibold"
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-[28px] border border-slate-200 bg-white shadow-sm overflow-hidden">
+                    <div className="px-5 py-4 border-b border-slate-200 bg-slate-50">
+                      <div className="font-semibold text-slate-900">Create A Post In soc/{activeCommunityDetails?.name || activeCommunity.name}</div>
+                      <div className="text-xs text-slate-500 mt-1">Posts appear under the community identity, with the member shown as the author beneath it.</div>
+                    </div>
+                    <div className="p-5 space-y-4">
+                      <textarea
+                        value={communityPostContent}
+                        onChange={(e) => setCommunityPostContent(e.target.value)}
+                        placeholder={`Share something with soc/${activeCommunityDetails?.name || activeCommunity.name}`}
+                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-black min-h-28"
+                      />
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                        <input
+                          ref={communityPostImageInputRef}
+                          type="file"
+                          accept="image/*,video/*"
+                          onChange={(e) => setCommunityPostImage(e.target.files?.[0] || null)}
+                          className="block w-full text-sm"
+                        />
+                        <button
+                          onClick={createCommunityPost}
+                          disabled={communityPosting}
+                          className="px-5 py-2.5 rounded-full bg-slate-900 text-white text-sm font-semibold disabled:opacity-50"
+                        >
+                          {communityPosting ? 'Posting...' : 'Publish Post'}
+                        </button>
+                      </div>
+                      {communityPostImage && (
+                        <div className="text-xs text-slate-500">Selected: {communityPostImage.name}</div>
                       )}
+                    </div>
+                  </div>
+
+                  {communityPostsLoading ? (
+                    <div className="rounded-3xl border border-slate-200 bg-white px-5 py-8 text-sm text-slate-500">Loading community posts...</div>
+                  ) : communityPosts.length === 0 ? (
+                    <div className="rounded-3xl border border-dashed border-slate-300 bg-white px-5 py-10 text-center">
+                      <div className="text-lg font-semibold text-slate-900">No posts in this community yet</div>
+                      <div className="text-sm text-slate-500 mt-1">Start the first thread for soc/{activeCommunityDetails?.name || activeCommunity.name}.</div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {communityPosts.map((post: any) => {
+                        const postId = String(post?._id || post?.id || '');
+                        const isAnonymousPost = (post as any).anonymous === true || (post as any).anonymous === 'true';
+                        const postUserId = String(post.user?._id || post.user?.id || '');
+                        const media = String(post?.imageUrl || '');
+                        const isVideo = !!media && /\.(mp4|webm|ogg|mov|m4v)(\?|$)/i.test(media);
+                        const userEmoji = post.userReactions?.[me?.id];
+                        const hasReacted = !!userEmoji;
+                        return (
+                          <article key={postId} className="rounded-[28px] border border-slate-200 bg-white shadow-sm overflow-hidden">
+                            <div className="px-5 pt-5">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-start gap-3 min-w-0">
+                                  {activeCommunityDetails?.profilePicture ? (
+                                    <img src={resolveMediaUrl(activeCommunityDetails.profilePicture)} alt={activeCommunityDetails?.name || 'community'} className="w-12 h-12 rounded-2xl object-cover border border-slate-200 flex-shrink-0" />
+                                  ) : (
+                                    <div className="w-12 h-12 rounded-2xl bg-orange-100 text-orange-700 flex items-center justify-center font-bold flex-shrink-0">
+                                      {String(activeCommunityDetails?.name || activeCommunity?.name || 'C').charAt(0).toUpperCase()}
+                                    </div>
+                                  )}
+                                  <div className="min-w-0">
+                                    <div className="font-bold text-slate-900 truncate">soc/{activeCommunityDetails?.name || activeCommunity?.name}</div>
+                                    <div className="text-xs text-slate-500 truncate">
+                                      posted by {isAnonymousPost ? 'anonymous member' : `u/${post.user?.username || post.user?.name || 'member'}`} · {shortTimeAgo(post.createdAt)}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 relative">
+                                  {String(post.user?._id || post.user?.id) === String(myId) && (
+                                    <button onClick={() => deletePost(postId)} className="px-3 py-1.5 rounded-full bg-red-50 text-red-600 text-xs font-semibold">
+                                      Delete
+                                    </button>
+                                  )}
+                                  <button onClick={() => setMenuOpen(menuOpen === postId ? null : postId)} className="h-9 w-9 rounded-full bg-slate-100 text-slate-700">
+                                    ⋮
+                                  </button>
+                                  {menuOpen === postId && String(post.user?._id || post.user?.id) !== String(myId) && (
+                                    <div className="absolute right-0 top-10 w-40 bg-white border rounded-xl shadow z-30 overflow-hidden">
+                                      <button
+                                        onClick={() => {
+                                          openReportDialog({
+                                            type: 'post',
+                                            postId,
+                                            userId: String(post.user?._id || post.user?.id || ''),
+                                            username: String(post.user?.username || ''),
+                                          });
+                                          setMenuOpen(null);
+                                        }}
+                                        className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-red-700 text-sm"
+                                      >
+                                        Report Post
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {post.content && <div className="mt-4 text-[15px] leading-7 text-slate-900 whitespace-pre-wrap">{post.content}</div>}
+                            </div>
+
+                            {media && (
+                              <div className="mt-4 bg-slate-100">
+                                {isVideo ? (
+                                  <video src={resolveMediaUrl(media)} controls className="w-full max-h-[70vh] object-cover" />
+                                ) : (
+                                  <img src={resolveMediaUrl(media)} alt="community post" className="w-full max-h-[70vh] object-cover" />
+                                )}
+                              </div>
+                            )}
+
+                            <div className="px-5 py-4 border-t border-slate-200 bg-slate-50">
+                              <div className="flex flex-wrap items-center gap-2">
+                                {[
+                                  { emoji: '♡', activeClass: 'text-red-500' },
+                                  { emoji: '☺', activeClass: 'text-yellow-500' },
+                                  { emoji: '☹', activeClass: 'text-blue-500' },
+                                  { emoji: '>_<', activeClass: 'text-red-500' },
+                                ].map((item) => (
+                                  <button
+                                    key={item.emoji}
+                                    onClick={() => handleEmojiReaction(postId, item.emoji)}
+                                    disabled={hasReacted && userEmoji !== item.emoji}
+                                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm bg-white ${userEmoji === item.emoji ? 'border-slate-900 text-slate-900' : 'border-slate-200 text-slate-700'} ${hasReacted && userEmoji !== item.emoji ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                  >
+                                    <span className={userEmoji === item.emoji ? item.activeClass : ''}>{item.emoji}</span>
+                                    <span>{post.reactions?.[item.emoji] || 0}</span>
+                                  </button>
+                                ))}
+                                <button
+                                  onClick={() => setShowComments(prev => ({ ...prev, [postId]: !prev[postId] }))}
+                                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-sm bg-white text-slate-700"
+                                >
+                                  💬 <span>{post.comments?.length || 0}</span>
+                                </button>
+                              </div>
+
+                              {showComments[postId] && (
+                                <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+                                  <div className="font-semibold text-slate-900 mb-3">Comments</div>
+                                  <div className="space-y-2 mb-4">
+                                    {!post.comments || post.comments.length === 0 ? (
+                                      <div className="text-sm text-slate-500">No comments yet.</div>
+                                    ) : (
+                                      post.comments.map((comment: any, idx: number) => (
+                                        <div key={idx} className="rounded-xl bg-slate-50 px-3 py-2">
+                                          <div className="text-xs text-slate-500">
+                                            u/{comment.user?.username || comment.user?.name || 'member'} · {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true })}
+                                          </div>
+                                          <div className="text-sm text-slate-900 mt-1 break-words">{comment.content}</div>
+                                        </div>
+                                      ))
+                                    )}
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <input
+                                      type="text"
+                                      value={commentText[postId] || ''}
+                                      onChange={(e) => setCommentText(prev => ({ ...prev, [postId]: e.target.value }))}
+                                      onKeyPress={(e) => e.key === 'Enter' && handleAddComment(postId)}
+                                      placeholder={`Reply to soc/${activeCommunityDetails?.name || activeCommunity?.name}`}
+                                      className="flex-1 rounded-xl border border-slate-200 px-4 py-2 text-sm text-black"
+                                      disabled={submittingComment[postId] || false}
+                                    />
+                                    <button
+                                      onClick={() => handleAddComment(postId)}
+                                      disabled={submittingComment[postId] || !commentText[postId]?.trim()}
+                                      className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-semibold disabled:opacity-50"
+                                    >
+                                      {submittingComment[postId] ? '...' : 'Reply'}
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </article>
+                        );
+                      })}
                     </div>
                   )}
-                </div>
-              </div>
-            </div>
-          )}
+                </>
+              )}
+            </main>
+          </div>
         </div>
       )}
 
       {mode === 'status' && (
         <div className="pb-4">
+          {/* Header with streak */}
+          <div className="flex items-center justify-between px-1 mb-3">
+            <div>
+              <h2 className="text-white font-bold text-base">📚 Today's Learning</h2>
+              <p className="text-gray-400 text-xs">Share what you learned today</p>
+            </div>
+            {myStreak > 0 && (
+              <div className="flex items-center gap-1.5 bg-orange-500/20 border border-orange-500/40 px-3 py-1.5 rounded-full">
+                <span className="text-lg">🔥</span>
+                <span className="text-orange-400 font-bold text-sm">{myStreak}</span>
+                <span className="text-orange-300 text-xs">{myStreak === 1 ? 'day' : 'days'}</span>
+              </div>
+            )}
+          </div>
+
           {/* Stories Row */}
           <div className="flex items-center gap-3 overflow-x-auto px-1 py-3 no-scrollbar">
-            {/* Add Status Button */}
+            {/* Add Learning Button */}
             <div className="flex flex-col items-center flex-shrink-0">
               <button
                 onClick={() => setStatusFormOpen(!statusFormOpen)}
-                className="w-16 h-16 rounded-full bg-gray-800 border-2 border-dashed border-blue-500 flex items-center justify-center hover:border-blue-400 transition-all hover:scale-105"
-                title="Add Status"
+                className="w-16 h-16 rounded-full bg-gray-800 border-2 border-dashed border-orange-500 flex items-center justify-center hover:border-orange-400 transition-all hover:scale-105"
+                title="Share Today's Learning"
               >
-                <span className="text-3xl text-blue-400">+</span>
+                <span className="text-3xl text-orange-400">+</span>
               </button>
-              <span className="text-[11px] text-gray-400 mt-1">Your Status</span>
+              <span className="text-[11px] text-gray-400 mt-1">
+                {myStreak > 0 ? `🔥 ${myStreak}` : 'Start'}
+              </span>
             </div>
 
             {/* My own statuses — shown first */}
@@ -3559,16 +4172,18 @@ export default function Message({ groupName }: { groupName?: string | null }) {
               const isSelected = String(selectedStatusId) === String(id);
               return (
                 <div key={String(id)} className="flex flex-col items-center flex-shrink-0 cursor-pointer" onClick={() => handleSelectStatus(s)}>
-                  <div className={`w-16 h-16 rounded-full p-0.5 ${isSelected ? 'bg-blue-500' : 'bg-gradient-to-tr from-green-400 to-blue-500'}`}>
+                  <div className={`w-16 h-16 rounded-full p-0.5 ${isSelected ? 'bg-orange-500' : 'bg-gradient-to-tr from-orange-400 to-yellow-500'}`}>
                     <div className="w-full h-full rounded-full bg-black overflow-hidden flex items-center justify-center relative">
                       {s.mediaUrl ? (
-                        <img src={resolveMediaUrl(s.mediaUrl)} alt="my status" className="w-full h-full object-cover" />
+                        <img src={resolveMediaUrl(s.mediaUrl)} alt="my learning" className="w-full h-full object-cover" />
                       ) : (
                         <span className="text-white text-xs text-center px-1 line-clamp-3">{s.content}</span>
                       )}
                     </div>
                   </div>
-                  <span className="text-[11px] text-gray-300 mt-1">Me</span>
+                  <span className="text-[11px] text-gray-300 mt-1">
+                    {myStreak > 0 ? `🔥${myStreak}` : 'Me'}
+                  </span>
                 </div>
               );
             })}
@@ -3579,9 +4194,10 @@ export default function Message({ groupName }: { groupName?: string | null }) {
               const username = usernameFor(s.userId);
               const isSelected = String(selectedStatusId) === String(id);
               const initial = (username || 'U').charAt(0).toUpperCase();
+              const streak = s.streak || 0;
               return (
                 <div key={String(id)} className="flex flex-col items-center flex-shrink-0 cursor-pointer" onClick={() => handleSelectStatus(s)}>
-                  <div className={`w-16 h-16 rounded-full p-0.5 ${isSelected ? 'bg-blue-500' : 'bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600'}`}>
+                  <div className={`w-16 h-16 rounded-full p-0.5 ${isSelected ? 'bg-blue-500' : streak >= 3 ? 'bg-gradient-to-tr from-orange-400 via-red-500 to-yellow-500' : 'bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600'}`}>
                     <div className="w-full h-full rounded-full bg-black overflow-hidden flex items-center justify-center">
                       {s.mediaUrl && (s.mediaType === 'image' || String(s.mediaUrl).match(/\.(png|jpe?g|gif|webp)(\?|$)/i)) ? (
                         <img src={resolveMediaUrl(s.mediaUrl)} alt={username} className="w-full h-full object-cover" />
@@ -3590,26 +4206,33 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                       )}
                     </div>
                   </div>
-                  <span className="text-[11px] text-gray-300 mt-1 max-w-[64px] truncate text-center">{username}</span>
+                  <span className="text-[11px] text-gray-300 mt-1 max-w-[64px] truncate text-center">
+                    {streak > 0 ? `🔥${streak}` : username}
+                  </span>
                 </div>
               );
             })}
           </div>
 
-          {/* Compose Status */}
+          {/* Compose Learning */}
           {statusFormOpen && (
-            <div className="mx-1 mb-4 bg-gray-900 border border-gray-700 rounded-2xl overflow-hidden shadow-2xl">
+            <div className="mx-1 mb-4 bg-gray-900 border border-orange-500/30 rounded-2xl overflow-hidden shadow-2xl">
               <div className="p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-white font-semibold text-base">New Status</h3>
+                  <div>
+                    <h3 className="text-white font-semibold text-base">📚 What did you learn today?</h3>
+                    {myStreak > 0 && (
+                      <p className="text-orange-400 text-xs mt-0.5">🔥 {myStreak} day streak — keep it going!</p>
+                    )}
+                  </div>
                   <button onClick={() => setStatusFormOpen(false)} className="text-gray-400 hover:text-white text-xl leading-none">✕</button>
                 </div>
                 <textarea
                   value={statusContent}
                   onChange={(e) => setStatusContent(e.target.value)}
-                  placeholder="What's on your mind?"
-                  rows={3}
-                  className="w-full bg-gray-800 text-white placeholder-gray-500 rounded-xl px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 border border-gray-700"
+                  placeholder="E.g. Today I learned about React hooks, solved 2 DSA problems, read about neural networks..."
+                  rows={4}
+                  className="w-full bg-gray-800 text-white placeholder-gray-500 rounded-xl px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-500 border border-gray-700"
                 />
                 <div className="mt-3 flex items-center gap-2">
                   <input id="status-file" type="file" accept="image/*,video/*" onChange={handleFileChange} className="hidden" disabled={isUploadingStatusMedia} />
@@ -3620,9 +4243,9 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                   <button
                     onClick={createStatus}
                     disabled={!statusContent.trim() && !statusMediaUrl}
-                    className="ml-auto px-5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-sm font-semibold transition"
+                    className="ml-auto px-5 py-2 bg-orange-600 hover:bg-orange-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-sm font-semibold transition"
                   >
-                    Share
+                    🔥 Share
                   </button>
                 </div>
                 {statusMediaUrl && (
@@ -3644,17 +4267,24 @@ export default function Message({ groupName }: { groupName?: string | null }) {
             if (!selectedStatus) return null;
             const username = usernameFor(selectedStatus.userId);
             const isOwn = String(selectedStatus.userId) === myId;
+            const viewerStreak = isOwn ? myStreak : (selectedStatus.streak || 0);
             return (
               <div className="fixed inset-0 z-[200] bg-black flex flex-col" onClick={() => setSelectedStatusId(null)}>
                 {/* Header */}
                 <div className="flex items-center gap-3 px-4 pt-12 pb-3" onClick={e => e.stopPropagation()}>
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 p-0.5 flex-shrink-0">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-orange-400 via-red-500 to-yellow-500 p-0.5 flex-shrink-0">
                     <div className="w-full h-full rounded-full bg-black flex items-center justify-center">
                       <span className="text-white font-bold">{(username || 'U').charAt(0).toUpperCase()}</span>
                     </div>
                   </div>
                   <div className="flex-1">
-                    <div className="text-white font-semibold text-sm">{username}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-white font-semibold text-sm">{isOwn ? 'You' : username}</span>
+                      {viewerStreak > 0 && (
+                        <span className="text-xs bg-orange-500/30 text-orange-300 px-2 py-0.5 rounded-full font-bold">🔥 {viewerStreak}</span>
+                      )}
+                    </div>
+                    <div className="text-orange-400 text-xs font-medium">📚 Today's Learning</div>
                     <div className="text-gray-400 text-xs">{new Date(selectedStatus.createdAt).toLocaleString()}</div>
                   </div>
                   {isOwn && (
@@ -3731,8 +4361,9 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
           {statuses.length === 0 && !statusFormOpen && (
             <div className="flex flex-col items-center justify-center py-16 text-gray-500">
-              <div className="text-5xl mb-3">🌟</div>
-              <p className="text-sm">No statuses yet. Be the first to share!</p>
+              <div className="text-5xl mb-3">🔥</div>
+              <p className="text-sm font-semibold text-gray-300">Start your learning streak!</p>
+              <p className="text-xs text-gray-500 mt-1">Post daily to keep your 🔥 alive</p>
             </div>
           )}
         </div>
@@ -3744,25 +4375,20 @@ export default function Message({ groupName }: { groupName?: string | null }) {
           <div className="flex items-center gap-1 bg-gray-800/60 rounded-full p-1 mb-4">
             <button
               onClick={() => { setMode('private'); }}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
-                mode === 'private' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
-              }`}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${mode === 'private' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
+                }`}
             >
               👤 Private
             </button>
             <button
-              onClick={() => { setMode('groups'); setShowCreateGroup(false); }}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
-                mode === 'groups' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
-              }`}
+              onClick={() => { setMode('communities'); }}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 text-gray-400 hover:text-white"
             >
-              👥 Group
+              🌐 Community
             </button>
             <button
               onClick={() => { setMode('random'); }}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
-                mode === 'random' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
-              }`}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 text-gray-400 hover:text-white"
             >
               🕵️ Random
             </button>
@@ -3920,24 +4546,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       )}
 
       {mode === 'posts' && (
-        <div>
-          <div className={`fixed top-4 left-2 z-40 flex flex-col items-center gap-3 ${showNotifications || mode !== 'posts' ? 'hidden' : ''}`}>
-            <button
-              onClick={() => {
-                if (isPostComposerOpen) {
-                  setIsPostComposerOpen(false);
-                  resetPostComposer();
-                } else {
-                  setIsPostComposerOpen(true);
-                }
-              }}
-              className="flex items-center justify-center transition text-7xl text-white hover:scale-110 leading-none"
-              title={isPostComposerOpen ? 'Close composer' : 'Create post'}
-              aria-label={isPostComposerOpen ? 'Close post composer' : 'Open post composer'}
-            >
-              {isPostComposerOpen ? '✕' : '+'}
-            </button>
-          </div>
+        <div className="mt-1">
 
           {postSearchOpen && (
             <div className="mt-3 px-1">
@@ -3945,18 +4554,18 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                 {/* Search icon inside input */}
                 <div className="relative flex-1">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-base pointer-events-none select-none">🔍</span>
-                  <input
-                    type="text"
-                    value={postSearchQuery}
-                    onChange={(e) => setPostSearchQuery(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && searchUserPosts()}
-                    placeholder="Search by username..."
-                    autoFocus
-                    className="w-full pl-9 pr-4 py-2.5 rounded-full bg-gray-800 text-white placeholder-gray-400 text-sm border border-gray-600 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 transition-all duration-200"
-                  />
+                    <input
+                      type="text"
+                      value={postSearchQuery}
+                      onChange={(e) => setPostSearchQuery(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && searchUserPosts()}
+                      placeholder="Search by username or community name..."
+                      autoFocus
+                      className="w-full pl-9 pr-4 py-2.5 rounded-full bg-gray-800 text-white placeholder-gray-400 text-sm border border-gray-600 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 transition-all duration-200"
+                    />
                   {postSearchQuery && (
                     <button
-                      onClick={() => { setPostSearchQuery(''); setPostSearchResults([]); }}
+                      onClick={clearPostSearch}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition text-sm"
                     >✕</button>
                   )}
@@ -3970,7 +4579,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                     <span className="flex items-center gap-1.5"><span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full"></span>Searching</span>
                   ) : 'Search'}
                 </button>
-                {selectedPostUsername && (
+                {(selectedPostUsername || selectedCommunitySearch) && (
                   <button
                     onClick={() => { clearPostSearch(); setPostSearchOpen(false); }}
                     className="flex-shrink-0 text-gray-400 hover:text-white bg-gray-700 hover:bg-gray-600 px-3 py-2.5 rounded-full text-sm transition-all duration-200"
@@ -3981,6 +4590,11 @@ export default function Message({ groupName }: { groupName?: string | null }) {
               {selectedPostUsername && (
                 <p className="mt-2 text-xs text-gray-400 pl-1">
                   Showing posts by <span className="text-blue-400 font-semibold">@{selectedPostUsername}</span>
+                </p>
+              )}
+              {selectedCommunitySearch && (
+                <p className="mt-2 text-xs text-gray-400 pl-1">
+                  Showing posts from <span className="text-orange-400 font-semibold">soc/{getCommunityName(selectedCommunitySearch)}</span>
                 </p>
               )}
             </div>
@@ -4038,7 +4652,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                         </div>
                         <div className="flex-1">
                           <div className="text-white font-medium hover:text-blue-400 transition">{user.username}</div>
-                          {user.about && <div className="text-gray-400 text-xs italic">{user.about}</div>}
+                          {user.professionDetail && <div className="text-gray-400 text-xs italic">{user.professionType ? `${user.professionType} - ` : ''}{user.professionDetail}</div>}
                         </div>
                       </div>
                     </div>
@@ -4074,7 +4688,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                         </div>
                         <div className="flex-1">
                           <div className="text-white font-medium hover:text-green-400 transition">{user.username}</div>
-                          {user.about && <div className="text-gray-400 text-xs italic">{user.about}</div>}
+                          {user.professionDetail && <div className="text-gray-400 text-xs italic">{user.professionType ? `${user.professionType} - ` : ''}{user.professionDetail}</div>}
                         </div>
                       </div>
                     </div>
@@ -4095,7 +4709,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                     <div className="text-xs text-white/80 truncate">
                       {postAnonymous ? 'Posting anonymously' : `Posting as @${me?.username || 'me'}`}
                       {postPrivate ? ' • Followers only' : ' • Public'}
-                      {postIsLocked ? ' • Locked' : ''}
+                      
                     </div>
                   </div>
                 </div>
@@ -4124,10 +4738,9 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                   />
                   <div className="mt-1 flex items-center justify-between text-xs text-gray-500">
                     <span>{postContent.trim().length > 0 ? `${postContent.trim().length} characters` : ''}</span>
-                    {(postPrivate || postAnonymous || postIsLocked) && (
+                    {(postPrivate || postAnonymous) && (
                       <span className="text-gray-600">
                         {postPrivate ? 'Followers only' : 'Public'}
-                        {postIsLocked ? ' • Locked' : ''}
                       </span>
                     )}
                   </div>
@@ -4216,7 +4829,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                           <SongSelector
                             key={name}
                             songUrl={songUrl}
-                            songName={name}
+                            songName={name.replace('.mp3', '')}
                             isSelected={postSong === songUrl}
                             onSelect={() => setPostSong(songUrl)}
                             postImage={postImage}
@@ -4244,27 +4857,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                     Followers only
                   </label>
 
-                  <label
-                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition cursor-pointer select-none ${postIsLocked ? 'bg-purple-50 border-purple-300 text-purple-900' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                      }`}
-                  >
-                    <input type="checkbox" checked={postIsLocked} onChange={(e) => setPostIsLocked(e.target.checked)} className="h-4 w-4 accent-purple-600" />
-                    🔒 Lock post
-                  </label>
 
-                  {postIsLocked && (
-                    <div className="flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1.5 text-sm">
-                      <span className="text-purple-900">Price (₹)</span>
-                      <input
-                        type="number"
-                        min="1"
-                        value={postLockedPrice}
-                        onChange={(e) => setPostLockedPrice(Number(e.target.value))}
-                        className="w-20 rounded-lg border border-purple-200 bg-white px-2 py-1 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        placeholder="0"
-                      />
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -4321,8 +4914,15 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                   <div className="flex-1">
                     <div className="text-lg text-blue-600 font-semibold">@{selectedUserProfile?.username}</div>
                     <div className="text-white">{selectedUserProfile?.name}</div>
-                    {selectedUserProfile?.about && (
-                      <div className="text-sm text-red-500 mt-2 italic">{selectedUserProfile.about}</div>
+                    {selectedUserProfile?.professionDetail && (
+                      <div className="text-sm text-red-500 mt-2 italic">{selectedUserProfile.professionType ? `${selectedUserProfile.professionType} - ` : ''}{selectedUserProfile.professionDetail}</div>
+                    )}
+                    {selectedUserProfile?.additionalDetails && selectedUserProfile.additionalDetails.length > 0 && (
+                      <div className="mt-1">
+                        {selectedUserProfile.additionalDetails.map((detail: string, idx: number) => (
+                          <div key={idx} className="text-xs text-red-400 italic">{detail}</div>
+                        ))}
+                      </div>
                     )}
 
                     <div className="text-sm text-grey-300">
@@ -4339,6 +4939,24 @@ export default function Message({ groupName }: { groupName?: string | null }) {
               <div className="p-3 bg-blue-50 border text-black border-blue-200 rounded text-sm">
                 <strong>Posts by @{selectedPostUsername}</strong>
                 {postSearchResults.length === 0 && <p className="text-gray-600 mt-1">No posts found</p>}
+              </div>
+            )}
+
+            {selectedCommunitySearch && (
+              <div className="p-4 rounded-xl border border-orange-200 bg-orange-50 text-black">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-semibold">Posts from soc/{getCommunityName(selectedCommunitySearch)}</div>
+                    <div className="text-xs text-gray-600 mt-1">{selectedCommunitySearch?.purpose || 'Community feed search results'}</div>
+                  </div>
+                  <button
+                    onClick={() => enterCommunity(selectedCommunitySearch)}
+                    className="px-3 py-1.5 rounded-full bg-orange-600 text-white text-sm font-semibold"
+                  >
+                    Open Community
+                  </button>
+                </div>
+                {postSearchResults.length === 0 && <p className="text-gray-600 mt-2 text-sm">No posts found</p>}
               </div>
             )}
 
@@ -4425,21 +5043,35 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                             loading="lazy"
                           />
                         </div>
-                        {isAnonymousPost ? (
-                          <span className='text-red-600 font-semibold'>⚠️ Anonymous</span>
-                        ) : (
-                          <h1
-                            className='text-blue-500 cursor-pointer hover:underline'
-                            onClick={() => {
-                              const uname = String(post.user?.username || '').trim();
-                              const uid = String(post.user?._id || post.user?.id || '').trim();
-                              openUserPosts(uname, uid || undefined);
-                              try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch { }
-                            }}
-                          >
-                            @{post.user?.username || 'unknown'}
-                          </h1>
-                        )}
+                        <div className="flex flex-col">
+                          {isAnonymousPost ? (
+                            <span className='text-red-600 font-semibold'>⚠️ Anonymous</span>
+                          ) : (
+                            <h1
+                              className='text-blue-500 cursor-pointer hover:underline leading-tight'
+                              onClick={() => {
+                                const uname = String(post.user?.username || '').trim();
+                                const uid = String(post.user?._id || post.user?.id || '').trim();
+                                openUserPosts(uname, uid || undefined);
+                                try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch { }
+                              }}
+                            >
+                              @{post.user?.username || 'unknown'}
+                            </h1>
+                          )}
+                          {post.createdAt && (
+                            <span className="text-xs text-gray-400 leading-tight">{shortTimeAgo(post.createdAt)}</span>
+                          )}
+                          {getCommunityName(post.community) && (
+                            <button
+                              type="button"
+                              onClick={() => openCommunityPostsSearch(post.community)}
+                              className="w-fit text-[11px] leading-tight text-orange-400 hover:text-orange-300"
+                            >
+                              soc/{getCommunityName(post.community)}
+                            </button>
+                          )}
+                        </div>
                         {/* <h2 className="text-sm text-gray-500 py-1" >{post.createdAt ? formatDistanceToNow(new Date(post.createdAt), { addSuffix: true }) : 'No date'}</h2> */}
                         {showFollowButton && (
                           <button
@@ -4456,10 +5088,9 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                           </button>
                         )}
                       </div>
-                      <div className="text-sm text-gray-500">{post.createdAt ? formatDistanceToNow(new Date(post.createdAt), { addSuffix: true }) : 'No date'}</div>
                       <p className="mt-0 text-white">{post.content}</p>
                     </div>
-                    <div className="flex items-center gap-2 relative z-20">
+                    <div className="flex items-center gap-2 relative z-20" onClick={(e) => e.stopPropagation()}>
                       {post.songUrl && (
                         <button
                           onClick={() => togglePostMute(post._id || post.id)}
@@ -4652,36 +5283,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                       >
                         💬
                       </button>
-                      {post.isLocked && (
-                        <div className="absolute top-2 right-2 text-yellow-300 text-2xl bg-gray-800 bg-opacity-75 rounded-full p-2 border border-yellow-300 z-10 shadow-xl">
-                          🔒
-                        </div>
-                      )}
 
-                      {/* Lock overlay only on media (keep username/profile visible) */}
-                      {post.isContentLocked && (
-                        <div className="absolute inset-0 z-30">
-                          <div className="absolute inset-0 bg-black/70 backdrop-blur-[1px]" />
-                          <div className="relative h-full w-full flex items-center justify-center p-4">
-                            <div className="w-full max-w-sm p-4 bg-yellow-100 border border-yellow-400 rounded text-center shadow-xl">
-                              <p className="text-gray-800 font-semibold mb-3">🔒 This post is locked</p>
-                              <p className="text-gray-700 mb-3 text-sm">Pay ₹{post.lockedPrice} to unlock this post</p>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  handleUnlockPost(post._id);
-                                }}
-                                disabled={unlockInitiating}
-                                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                {unlockInitiating ? 'Please wait...' : '💳 Pay to Unlock'}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
                     </div>
                   )}
 
@@ -4813,25 +5415,20 @@ export default function Message({ groupName }: { groupName?: string | null }) {
           <div className="flex items-center gap-1 bg-gray-800/60 rounded-full p-1 mb-4">
             <button
               onClick={() => { if (isPrivateChatPage) history.pushState(null, '', `/message`); setMode('private'); }}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
-                mode === 'private' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
-              }`}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 text-gray-400 hover:text-white"
             >
               👤 Private
             </button>
             <button
-              onClick={() => { if (isPrivateChatPage) history.pushState(null, '', `/message`); setMode('groups'); setShowCreateGroup(false); }}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
-                mode === 'groups' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
-              }`}
+              onClick={() => { if (isPrivateChatPage) history.pushState(null, '', `/message`); setMode('communities'); }}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 text-gray-400 hover:text-white"
             >
-              👥 Group
+              🌐 Community
             </button>
             <button
               onClick={() => { if (isPrivateChatPage) history.pushState(null, '', `/message`); setMode('random'); }}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
-                mode === 'random' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
-              }`}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${mode === 'random' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-white'
+                }`}
             >
               🕵️ Random
             </button>
@@ -4870,8 +5467,15 @@ export default function Message({ groupName }: { groupName?: string | null }) {
 
                 <div className="w-full bg-gray-100 rounded p-3 mb-4 text-center">
                   <p className="text-sm text-gray-700">
-                    {currentRandomUser.about || 'No bio provided yet'}
+                    {currentRandomUser.professionDetail ? `${currentRandomUser.professionType ? currentRandomUser.professionType + ' - ' : ''}${currentRandomUser.professionDetail}` : 'No details provided yet'}
                   </p>
+                  {currentRandomUser.additionalDetails && currentRandomUser.additionalDetails.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-gray-200">
+                      {currentRandomUser.additionalDetails.map((detail: string, idx: number) => (
+                        <p key={idx} className="text-xs text-gray-600 italic mt-1">{detail}</p>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex gap-3 w-full">
@@ -4910,91 +5514,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
         </div>
       )}
 
-      {unlockDialog && (
-        <div
-          className="fixed inset-0 z-[9997] bg-black/70 flex items-center justify-center p-4"
-          onClick={() => setUnlockDialog(null)}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div
-            className="w-full max-w-md bg-white rounded-lg shadow-2xl p-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="text-lg font-semibold text-black">Unlock Post</div>
-                <div className="text-sm text-gray-600">Amount: ₹{unlockDialog.amount}</div>
-              </div>
-              <button
-                type="button"
-                className="w-10 h-10 rounded-full bg-gray-100 text-black hover:bg-gray-200 flex items-center justify-center text-xl"
-                onClick={() => setUnlockDialog(null)}
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
 
-            {unlockDialog.upiVpa && (
-              <div className="mt-4 p-3 border rounded bg-yellow-50">
-                <div className="text-sm font-semibold text-gray-800">UPI (Receiver)</div>
-                <div className="mt-1 flex items-center justify-between gap-2">
-                  <div className="text-sm text-gray-700 break-all">{unlockDialog.upiVpa}</div>
-                  <button
-                    type="button"
-                    className="px-2 py-1 bg-gray-200 rounded text-sm text-black hover:bg-gray-300"
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(String(unlockDialog.upiVpa));
-                        setMsg('UPI ID copied');
-                      } catch {
-                        setMsg('Copy failed');
-                      }
-                    }}
-                  >
-                    Copy
-                  </button>
-                </div>
-                <div className="mt-1 text-xs text-gray-600">
-                  Choose UPI below to pay and unlock instantly.
-                </div>
-              </div>
-            )}
-
-            <div className="mt-4 flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={() => startUnlockPayment({ upi: true })}
-                disabled={!unlockDialog.key}
-                className="w-full px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 font-semibold disabled:opacity-50"
-              >
-                UPI Pay to Unlock
-              </button>
-              <button
-                type="button"
-                onClick={() => startUnlockPayment()}
-                disabled={!unlockDialog.key}
-                className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-semibold disabled:opacity-50"
-              >
-                Other Methods
-              </button>
-              <button
-                type="button"
-                onClick={() => setUnlockDialog(null)}
-                className="w-full px-4 py-2 bg-gray-200 text-black rounded hover:bg-gray-300"
-              >
-                Cancel
-              </button>
-              {!unlockDialog.key && (
-                <div className="text-xs text-red-600">
-                  Payments are not configured (missing Razorpay key). Set `RAZORPAY_KEY_ID` on the backend.
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {showMyProfileModal && (
         <div
@@ -5019,30 +5539,26 @@ export default function Message({ groupName }: { groupName?: string | null }) {
             className="sm:rounded-2xl"
           >
             {/* Handle bar */}
-            <div style={{ display:'flex', justifyContent:'center', paddingTop:'12px', marginBottom:'4px' }}>
-              <div style={{ width:'36px', height:'4px', borderRadius:'2px', background:'rgba(255,255,255,0.15)' }} />
+            <div style={{ display: 'flex', justifyContent: 'center', paddingTop: '12px', marginBottom: '4px' }}>
+              <div style={{ width: '36px', height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.15)' }} />
             </div>
 
             {/* Header row */}
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 20px 0' }}>
-              <span style={{ color:'#c4b5fd', fontWeight:700, fontSize:'16px', letterSpacing:'0.02em' }}>My Profile</span>
-              <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
-                {/* Payments */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px 0' }}>
+              <span style={{ color: '#c4b5fd', fontWeight: 700, fontSize: '16px', letterSpacing: '0.02em' }}>My Profile</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <button
-                  onClick={() => { setShowMyProfileModal(false); window.location.pathname = '/message/payment'; }}
-                  aria-label="Payments"
-                  title="Payments"
-                  type="button"
-                  style={{ width:'34px', height:'34px', borderRadius:'50%', border:'1px solid rgba(234,179,8,0.4)', background:'rgba(234,179,8,0.12)', color:'#fbbf24', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', fontSize:'15px' }}
+                  onClick={() => window.location.href = '/set-detail'}
+                  style={{ background: 'rgba(255,255,255,0.1)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '14px', padding: '6px 12px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
                 >
-                  ₹
+                  Set Detail
                 </button>
                 {/* Close */}
                 <button
                   onClick={() => setShowMyProfileModal(false)}
                   aria-label="Close"
                   type="button"
-                  style={{ width:'34px', height:'34px', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.1)', background:'rgba(255,255,255,0.06)', color:'#9ca3af', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', fontSize:'20px', lineHeight:1 }}
+                  style={{ width: '34px', height: '34px', borderRadius: '50%', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.06)', color: '#9ca3af', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '20px', lineHeight: 1 }}
                 >
                   ×
                 </button>
@@ -5050,34 +5566,34 @@ export default function Message({ groupName }: { groupName?: string | null }) {
             </div>
 
             {/* Divider */}
-            <div style={{ margin:'12px 0 0', borderTop:'1px solid rgba(139,92,246,0.15)' }} />
+            <div style={{ margin: '12px 0 0', borderTop: '1px solid rgba(139,92,246,0.15)' }} />
 
             {myProfileLoading ? (
-              <div style={{ padding:'32px', textAlign:'center', color:'#a78bfa', fontSize:'14px' }}>Loading…</div>
+              <div style={{ padding: '32px', textAlign: 'center', color: '#a78bfa', fontSize: '14px' }}>Loading…</div>
             ) : myProfileError ? (
-              <div style={{ padding:'16px 20px', color:'#f87171', fontSize:'13px' }}>{myProfileError}</div>
+              <div style={{ padding: '16px 20px', color: '#f87171', fontSize: '13px' }}>{myProfileError}</div>
             ) : (
-              <div style={{ padding:'20px' }}>
+              <div style={{ padding: '20px' }}>
 
-                {/* Avatar + basic info */}
-                <div style={{ display:'flex', alignItems:'center', gap:'16px', marginBottom:'20px' }}>
-                  {/* Avatar */}
+                {/* Avatar left + info right */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px', marginBottom: '20px' }}>
+                  {/* Left: Avatar */}
                   <div
-                    style={{ position:'relative', flexShrink:0, cursor: myProfile?.profilePicture ? 'pointer' : 'default' }}
+                    style={{ position: 'relative', flexShrink: 0, cursor: myProfile?.profilePicture ? 'pointer' : 'default' }}
                     onClick={() => { if (myProfile?.profilePicture) setZoomedProfilePicSrc(resolveMediaUrl(myProfile.profilePicture)); }}
                     title={myProfile?.profilePicture ? 'View profile picture' : undefined}
                   >
                     {/* Gradient ring */}
-                    <div style={{ width:'76px', height:'76px', borderRadius:'50%', padding:'2.5px', background:'linear-gradient(135deg,#7c3aed,#db2777,#f59e0b)', flexShrink:0 }}>
-                      <div style={{ width:'100%', height:'100%', borderRadius:'50%', background:'#1e1040', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', position:'relative' }}>
-                        <span style={{ color:'#c4b5fd', fontWeight:700, fontSize:'24px' }}>
+                    <div style={{ width: '82px', height: '82px', borderRadius: '50%', padding: '3px', background: 'linear-gradient(135deg,#7c3aed,#db2777,#f59e0b)', flexShrink: 0 }}>
+                      <div style={{ width: '100%', height: '100%', borderRadius: '50%', background: '#1e1040', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', position: 'relative' }}>
+                        <span style={{ color: '#c4b5fd', fontWeight: 700, fontSize: '28px' }}>
                           {(myProfile?.username || 'U').charAt(0).toUpperCase()}
                         </span>
                         {myProfile?.profilePicture && (
                           <img
                             src={resolveMediaUrl(myProfile.profilePicture)}
                             alt={myProfile?.username || 'me'}
-                            style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover' }}
+                            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
                             onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                             loading="lazy"
                           />
@@ -5088,60 +5604,59 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                     <button
                       type="button"
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); myProfilePicInputRef.current?.click(); }}
-                      style={{ position:'absolute', bottom:0, right:0, width:'26px', height:'26px', borderRadius:'50%', border:'2px solid #0f0c29', background:'linear-gradient(135deg,#7c3aed,#db2777)', color:'white', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', fontSize:'12px' }}
+                      style={{ position: 'absolute', bottom: 0, right: 0, width: '26px', height: '26px', borderRadius: '50%', border: '2px solid #0f0c29', background: 'linear-gradient(135deg,#7c3aed,#db2777)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '13px' }}
                       title="Change profile picture"
                       disabled={isUploadingMyProfilePic}
                     >📷</button>
                     <input ref={myProfilePicInputRef} type="file" accept="image/*" className="hidden" onChange={handleMyProfilePictureChange} />
                   </div>
 
-                  {/* Name / username / joined */}
-                  <div style={{ minWidth:0, flex:1 }}>
-                    <div style={{ color:'#c4b5fd', fontWeight:700, fontSize:'16px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                  {/* Right: All info stacked */}
+                  <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                    {/* Username */}
+                    <div style={{ color: '#c4b5fd', fontWeight: 700, fontSize: '17px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       @{myProfile?.username}
                     </div>
-                    <div style={{ color:'#e5e7eb', fontSize:'14px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:'2px' }}>
+                    {/* Full Name */}
+                    <div style={{ color: '#e5e7eb', fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {myProfile?.name}
                     </div>
-                    <div style={{ color:'#6b7280', fontSize:'11px', marginTop:'4px' }}>
-                      Joined {myProfile?.createdAt ? new Date(myProfile.createdAt).toLocaleDateString(undefined, { month:'short', year:'numeric' }) : '—'}
+                    {/* Joined */}
+                    <div style={{ color: '#6b7280', fontSize: '11px', marginTop: '2px' }}>
+                      Joined {myProfile?.createdAt ? new Date(myProfile.createdAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) : '—'}
                     </div>
+
+                    {/* Profession / bio details */}
+                    {(myProfile?.professionType || me?.professionType || myProfile?.professionDetail || me?.professionDetail || (myProfile?.additionalDetails?.length > 0) || (me?.additionalDetails?.length > 0)) && (
+                      <div style={{ marginTop: '8px', padding: '8px 10px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px' }}>
+                        {(myProfile?.professionType || me?.professionType) && (
+                          <div style={{ color: '#a78bfa', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
+                            {myProfile?.professionType || me?.professionType}
+                          </div>
+                        )}
+                        {(myProfile?.professionDetail || me?.professionDetail) && (
+                          <div style={{ color: '#d1d5db', fontSize: '12px', fontStyle: 'italic', wordBreak: 'break-word' }}>
+                            {myProfile?.professionDetail || me?.professionDetail}
+                          </div>
+                        )}
+                        {((myProfile?.additionalDetails && myProfile.additionalDetails.length > 0) ? myProfile.additionalDetails : (me?.additionalDetails && me.additionalDetails.length > 0 ? me.additionalDetails : [])).map((detail: string, idx: number) => (
+                          <div key={idx} style={{ color: '#9ca3af', fontSize: '11px', fontStyle: 'italic', wordBreak: 'break-word', marginTop: '6px', paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                            {detail}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 {/* Upload status */}
-                {myProfilePicError && <div style={{ color:'#f87171', fontSize:'12px', marginBottom:'12px' }}>{myProfilePicError}</div>}
-                {isUploadingMyProfilePic && <div style={{ color:'#a78bfa', fontSize:'12px', marginBottom:'12px' }}>Uploading picture…</div>}
-
-                {/* Bio */}
-                <div style={{ marginBottom:'20px' }}>
-                  <div style={{ color:'#9ca3af', fontSize:'11px', fontWeight:600, letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:'8px' }}>Bio</div>
-                  <textarea
-                    value={myBioDraft}
-                    onChange={(e) => setMyBioDraft(e.target.value)}
-                    maxLength={280}
-                    rows={3}
-                    style={{ width:'100%', boxSizing:'border-box', padding:'12px', borderRadius:'12px', border:'1px solid rgba(139,92,246,0.3)', background:'rgba(255,255,255,0.05)', color:'#e5e7eb', fontSize:'14px', resize:'none', outline:'none', fontFamily:'inherit', lineHeight:1.5 }}
-                    placeholder="Write something about you…"
-                    onFocus={e => e.currentTarget.style.borderColor = 'rgba(196,181,253,0.6)'}
-                    onBlur={e => e.currentTarget.style.borderColor = 'rgba(139,92,246,0.3)'}
-                  />
-                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginTop:'8px' }}>
-                    <span style={{ color:'#6b7280', fontSize:'11px' }}>{String(myBioDraft || '').trim().length}/280</span>
-                    <button
-                      onClick={saveMyBio}
-                      disabled={myProfileSavingBio}
-                      style={{ padding:'7px 18px', borderRadius:'20px', border:'none', background: myProfileSavingBio ? 'rgba(139,92,246,0.3)' : 'linear-gradient(135deg,#7c3aed,#6d28d9)', color:'white', fontSize:'13px', fontWeight:600, cursor: myProfileSavingBio ? 'not-allowed' : 'pointer', opacity: myProfileSavingBio ? 0.7 : 1 }}
-                    >
-                      {myProfileSavingBio ? 'Saving…' : 'Save Bio'}
-                    </button>
-                  </div>
-                </div>
+                {myProfilePicError && <div style={{ color: '#f87171', fontSize: '12px', marginBottom: '12px', textAlign: 'center' }}>{myProfilePicError}</div>}
+                {isUploadingMyProfilePic && <div style={{ color: '#a78bfa', fontSize: '12px', marginBottom: '12px', textAlign: 'center' }}>Uploading picture…</div>}
 
                 {/* View My Posts */}
                 <button
                   onClick={() => { setMyPostsView(!viewingOwnPosts); setShowMyProfileModal(false); }}
-                  style={{ width:'100%', padding:'13px', borderRadius:'14px', border:'1px solid rgba(139,92,246,0.4)', background: viewingOwnPosts ? 'rgba(109,40,217,0.35)' : 'rgba(139,92,246,0.12)', color:'#c4b5fd', fontWeight:600, fontSize:'14px', cursor:'pointer', letterSpacing:'0.01em', transition:'all 0.2s' }}
+                  style={{ width: '100%', padding: '13px', borderRadius: '14px', border: '1px solid rgba(139,92,246,0.4)', background: viewingOwnPosts ? 'rgba(109,40,217,0.35)' : 'rgba(139,92,246,0.12)', color: '#c4b5fd', fontWeight: 600, fontSize: '14px', cursor: 'pointer', letterSpacing: '0.01em', transition: 'all 0.2s', marginTop: '10px' }}
                   onMouseEnter={e => e.currentTarget.style.background = 'rgba(109,40,217,0.35)'}
                   onMouseLeave={e => e.currentTarget.style.background = viewingOwnPosts ? 'rgba(109,40,217,0.35)' : 'rgba(139,92,246,0.12)'}
                 >
@@ -5224,14 +5739,14 @@ export default function Message({ groupName }: { groupName?: string | null }) {
             className="absolute bottom-full mb-2 text-2xl hover:scale-110 transition-transform cursor-pointer disabled:opacity-50 animate-pulse bg-white/80 backdrop-blur rounded-full p-2 shadow-lg flex items-center justify-center z-[110]"
             title={
               timeInfo?.isInEntryWindow
-                ? 'Enter Night Mode'
+                ? 'Enter Study Mode'
                 : timeInfo?.message
                   ? timeInfo.message
-                  : 'Night mode not available now'
+                  : 'Study mode not available now'
             }
-            aria-label="Enter Night Mode"
+            aria-label="Enter Study Mode"
           >
-            🌙
+            📚
           </button>
           <button
             onClick={() => {
@@ -5266,11 +5781,11 @@ export default function Message({ groupName }: { groupName?: string | null }) {
         <button
           onClick={() => {
             if (isPrivateChatPage) history.pushState(null, '', `/message`);
-            if (!['groups', 'private', 'random'].includes(mode)) {
+            if (!['private', 'random'].includes(mode)) {
               setMode('private');
             }
           }}
-          className={`flex flex-col items-center justify-center p-1 text-2xl transition hover:scale-110 ${['groups', 'private', 'random'].includes(mode) ? '' : 'opacity-50 grayscale'}`}
+          className={`flex flex-col items-center justify-center p-1 text-2xl transition hover:scale-110 ${['private', 'random'].includes(mode) ? '' : 'opacity-50 grayscale'}`}
           title="Chat"
         >
           💬
@@ -5283,10 +5798,12 @@ export default function Message({ groupName }: { groupName?: string | null }) {
             setMode('status');
           }}
           className={`flex flex-col items-center justify-center p-1 transition hover:scale-110 ${mode === 'status' ? '' : 'opacity-50 grayscale'}`}
-          title="Status"
+          title="Today's Learning"
         >
           <ActiveIcon size={28} />
-          <span className="text-[10px] font-medium text-gray-600 dark:text-gray-300">Status</span>
+          <span className="text-[10px] font-medium text-gray-600 dark:text-gray-300">
+            {myStreak > 0 ? `🔥${myStreak}` : 'Learn'}
+          </span>
         </button>
 
         <div className="flex flex-col items-center">

@@ -3,64 +3,40 @@ import User from '../models/User.js';
 import Post from '../models/Post.js';
 import Room from '../models/Room.js';
 import RoomComment from '../models/RoomComment.js';
-import RoomEntryPayment from '../models/RoomEntryPayment.js';
+
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { uploadsDir, legacyUploadsDir } from '../utils/paths.js';
-import {
-  canUserEnterNightMode,
-  getNightModeTimeInfo,
-  shouldUserBeInNightMode,
-  isCurrentlyInNightMode,
-  formatTimeRemaining,
-} from '../utils/nightMode.js';
+// Study Mode is always accessible — entry is admin-approved (isInNightMode flag)
+// No longer time-restricted to 10 PM–5 AM
 
 /**
- * Enter night mode - only allowed during entry window (10 PM - 3:30 AM)
- * All validation is server-side to prevent client-side manipulation
+ * Enter Study Mode — always allowed; marks the user as active in Study Mode.
  */
 export const enterNightMode = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
 
-    // Server-side validation: Check if user can enter night mode NOW
-    if (!canUserEnterNightMode()) {
-      const timeInfo = getNightModeTimeInfo();
-      return res.status(403).json({
-        success: false,
-        message: timeInfo.message,
-        timeUntilNightMode: timeInfo.timeUntilNightMode,
-      });
-    }
-
-    // Update user's night mode status
     const user = await User.findByIdAndUpdate(
       userId,
-      {
-        isInNightMode: true,
-        nightModeEnteredAt: new Date(),
-      },
+      { isInNightMode: true, nightModeEnteredAt: new Date() },
       { new: true }
     );
 
     res.json({
       success: true,
-      message: 'Welcome to Night Mode 🌙',
-      user: {
-        _id: user?._id,
-        username: user?.username,
-        isInNightMode: user?.isInNightMode,
-      },
+      message: 'Welcome to Study Mode 📚',
+      user: { _id: user?._id, username: user?.username, isInNightMode: user?.isInNightMode },
     });
   } catch (error) {
-    console.error('Error entering night mode:', error);
+    console.error('Error entering study mode:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };
 
 /**
- * Exit night mode - can be done anytime
+ * Exit Study Mode — can be done anytime
  */
 export const exitNightMode = async (req: Request, res: Response) => {
   try {
@@ -68,10 +44,7 @@ export const exitNightMode = async (req: Request, res: Response) => {
 
     const user = await User.findByIdAndUpdate(
       userId,
-      {
-        isInNightMode: false,
-        lastNightModeExit: new Date(),
-      },
+      { isInNightMode: false, lastNightModeExit: new Date() },
       { new: true }
     );
 
@@ -80,112 +53,70 @@ export const exitNightMode = async (req: Request, res: Response) => {
 
     res.json({
       success: true,
-      message: 'Exited Night Mode',
-      user: {
-        _id: user?._id,
-        username: user?.username,
-        isInNightMode: user?.isInNightMode,
-      },
+      message: 'Exited Study Mode',
+      user: { _id: user?._id, username: user?.username, isInNightMode: user?.isInNightMode },
     });
   } catch (error) {
-    console.error('Error exiting night mode:', error);
+    console.error('Error exiting study mode:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };
 
 /**
- * Get current night mode status for authenticated user
+ * Get current Study Mode status for authenticated user
  */
 export const getNightModeStatus = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
     const user = await User.findById(userId);
 
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    // Validate if user should still be in night mode
-    const shouldBeInNight = shouldUserBeInNightMode(user.nightModeEnteredAt);
-    const timeInfo = getNightModeTimeInfo();
-
-    // If user is marked as in night mode but shouldn't be, update them
-    if (user.isInNightMode && !shouldBeInNight) {
-      user.isInNightMode = false;
-      user.lastNightModeExit = new Date();
-      await user.save();
-    }
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
     res.json({
       success: true,
-      isInNightMode: user.isInNightMode && shouldBeInNight,
-      canEnterNightMode: canUserEnterNightMode(),
-      timeInfo,
+      isInNightMode: user.isInNightMode || false,
+      canEnterNightMode: true, // Always allowed
+      timeInfo: { isCurrentlyInNightMode: true, isInEntryWindow: true, message: 'Study Mode is always available 📚' },
       user: {
         _id: user._id,
         username: user.username,
-        isInNightMode: user.isInNightMode && shouldBeInNight,
+        isInNightMode: user.isInNightMode || false,
       },
     });
   } catch (error) {
-    console.error('Error getting night mode status:', error);
+    console.error('Error getting study mode status:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };
 
 /**
- * Get night posts (only accessible in night mode)
- * Server-side validation prevents access outside of night mode
+ * Get Study Mode posts
  */
 export const getNightPosts = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
     const user = await User.findById(userId);
 
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    if (!user.isInNightMode) {
+      return res.status(403).json({ success: false, message: 'Access denied. You are not in Study Mode. Please enter Study Mode first.' });
     }
 
-    // Strict server-side check: User must be in night mode AND it must be nighttime
-    const isInValidNightMode =
-      user.isInNightMode && shouldUserBeInNightMode(user.nightModeEnteredAt);
-    const isNightTime = isCurrentlyInNightMode();
-
-    if (!isInValidNightMode || !isNightTime) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. You are not in valid night mode.',
-      });
-    }
-
-    // Only return night posts, sorted by recent first
     const nightPosts = await Post.find({ isNightPost: true })
       .populate('user', 'username name')
       .populate('comments.user', 'username name')
       .sort({ createdAt: -1 })
       .allowDiskUse(true);
 
-    // Convert Maps to objects for JSON serialization
     const nightPostsWithReactions = nightPosts.map((post) => {
       const postObj = post.toObject();
-      if (post.reactions) {
-        (postObj as any).reactions = Object.fromEntries(
-          post.reactions.entries()
-        );
-      }
-      if (post.userReactions) {
-        (postObj as any).userReactions = Object.fromEntries(
-          post.userReactions.entries()
-        );
-      }
+      if (post.reactions) (postObj as any).reactions = Object.fromEntries(post.reactions.entries());
+      if (post.userReactions) (postObj as any).userReactions = Object.fromEntries(post.userReactions.entries());
       return postObj;
     });
 
-    res.json({
-      success: true,
-      posts: nightPostsWithReactions,
-      totalCount: nightPostsWithReactions.length,
-    });
+    res.json({ success: true, posts: nightPostsWithReactions, totalCount: nightPostsWithReactions.length });
   } catch (error) {
     console.error('Error getting night posts:', error);
     res.status(500).json({ message: 'Server error' });
@@ -193,37 +124,24 @@ export const getNightPosts = async (req: Request, res: Response) => {
 };
 
 /**
- * Create a night post (only during night mode)
- * Server-side validation ensures posts can only be created during valid night mode
+ * Create a Study Mode post
  */
 export const createNightPost = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
     const user = await User.findById(userId);
 
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
-    // Strict validation: Can only create during night mode when it's nighttime
-    const isInValidNightMode =
-      user.isInNightMode && shouldUserBeInNightMode(user.nightModeEnteredAt);
-    const isNightTime = isCurrentlyInNightMode();
-
-    if (!isInValidNightMode || !isNightTime) {
-      return res.status(403).json({
-        success: false,
-        message: 'Night posts can only be created during Night Mode.',
-      });
+    if (!user.isInNightMode) {
+      return res.status(403).json({ success: false, message: 'Study posts can only be created while in Study Mode.' });
     }
 
     const { content, imageUrl, songUrl, anonymous } = req.body;
     const safeContent = content == null ? '' : String(content);
     const hasAny = Boolean(String(safeContent).trim() || String(imageUrl || '').trim() || String(songUrl || '').trim());
 
-    if (!hasAny) {
-      return res.status(400).json({ message: 'Nothing to post' });
-    }
+    if (!hasAny) return res.status(400).json({ message: 'Nothing to post' });
 
     const post = new Post({
       user: userId,
@@ -232,24 +150,17 @@ export const createNightPost = async (req: Request, res: Response) => {
       songUrl,
       anonymous: anonymous === 'true' || anonymous === true,
       isNightPost: true,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
     await post.save();
     await post.populate('user', 'username name');
 
     const postObj: any = post.toObject();
-    if (post.reactions) {
-      postObj.reactions = Object.fromEntries(post.reactions.entries());
-    }
-    if (post.userReactions) {
-      postObj.userReactions = Object.fromEntries(post.userReactions.entries());
-    }
+    if (post.reactions) postObj.reactions = Object.fromEntries(post.reactions.entries());
+    if (post.userReactions) postObj.userReactions = Object.fromEntries(post.userReactions.entries());
 
-    res.status(201).json({
-      success: true,
-      post: postObj,
-      message: 'Night post created successfully',
-    });
+    res.status(201).json({ success: true, post: postObj, message: 'Night post created successfully' });
   } catch (error) {
     console.error('Error creating night post:', error);
     res.status(500).json({ message: 'Server error' });
@@ -257,29 +168,21 @@ export const createNightPost = async (req: Request, res: Response) => {
 };
 
 /**
- * Create a night room
+ * Create a Study Room
  */
 export const createNightRoom = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
     const user = await User.findById(userId);
 
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
-    // Only allow creation while in valid night mode
-    const isInValidNightMode = user.isInNightMode && shouldUserBeInNightMode(user.nightModeEnteredAt);
-    const isNightTime = isCurrentlyInNightMode();
-
-    if (!isInValidNightMode || !isNightTime) {
-      return res.status(403).json({ success: false, message: 'Rooms can only be created during Night Mode.' });
+    if (!user.isInNightMode) {
+      return res.status(403).json({ success: false, message: 'You must be in Study Mode to create a Study Room.' });
     }
 
     const { name, entryFee: entryFeeRaw } = req.body as any;
-    if (!name || name.trim().length === 0) {
-      return res.status(400).json({ message: 'Room name is required' });
-    }
+    if (!name || name.trim().length === 0) return res.status(400).json({ message: 'Room name is required' });
 
     const entryFeeNum = Number(entryFeeRaw || 0);
     const entryFee = Number.isFinite(entryFeeNum) && entryFeeNum > 0 ? Math.floor(entryFeeNum) : 0;
@@ -308,7 +211,10 @@ export const createNightRoom = async (req: Request, res: Response) => {
  */
 export const getNightRooms = async (req: Request, res: Response) => {
   try {
-    const rooms = await Room.find({ isNightRoom: true }).populate('creator', 'username name').sort({ createdAt: -1 }).lean();
+    const rooms = await Room.find({ isNightRoom: true })
+      .populate('creator', 'username name')
+      .sort({ createdAt: -1 })
+      .lean();
     res.json({ success: true, rooms });
   } catch (error) {
     console.error('Error fetching night rooms:', error);
@@ -318,8 +224,6 @@ export const getNightRooms = async (req: Request, res: Response) => {
 
 /**
  * Join a room directly.
- * - If entryFee is 0 => joins immediately
- * - If entryFee > 0 => returns Razorpay order details (client must verify payment)
  */
 export const joinNightRoom = async (req: Request, res: Response) => {
   try {
@@ -333,115 +237,15 @@ export const joinNightRoom = async (req: Request, res: Response) => {
       return res.json({ success: true, joined: true, roomId });
     }
 
-    // creator always joins without payment
-    if (String(room.creator) === String(userId)) {
-      room.participants.push(userId as any);
-      await room.save();
-      return res.json({ success: true, joined: true, roomId });
-    }
-
-    const fee = Number((room as any).entryFee || 0);
-    if (!fee || fee <= 0) {
-      room.participants.push(userId as any);
-      await room.save();
-      return res.json({ success: true, joined: true, roomId });
-    }
-
-    const { default: Razorpay } = await import('razorpay');
-    const razorpay = new (Razorpay as any)({
-      key_id: process.env.RAZORPAY_KEY_ID,
-      key_secret: process.env.RAZORPAY_KEY_SECRET,
-    });
-
-    const receipt = `room_${crypto
-      .createHash('sha1')
-      .update(`${roomId}:${userId}`)
-      .digest('hex')
-      .slice(0, 32)}`;
-
-    const order = await razorpay.orders.create({
-      amount: fee * 100,
-      currency: 'INR',
-      receipt,
-      notes: { roomId, userId },
-    });
-
-    return res.json({
-      success: true,
-      paymentRequired: true,
-      orderId: order.id,
-      amount: fee,
-      key: process.env.RAZORPAY_KEY_ID,
-      upiVpa: process.env.UPI_VPA || '6205915327@sbi',
-      payeeName: process.env.UPI_PAYEE_NAME || 'Night Room Entry',
-    });
+    room.participants.push(userId as any);
+    await room.save();
+    return res.json({ success: true, joined: true, roomId });
   } catch (error) {
     console.error('Error joining room:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };
 
-export const verifyNightRoomEntryPayment = async (req: Request, res: Response) => {
-  try {
-    const roomId = String(req.params.id || '').trim();
-    const userId = String((req as any).user._id || (req as any).user?.id || '');
-    const { orderId, paymentId, signature } = req.body as any;
-
-    const secret = process.env.RAZORPAY_KEY_SECRET;
-    if (!secret) {
-      return res.status(500).json({ message: 'Payment verification is not configured' });
-    }
-
-    const expectedSignature = crypto
-      .createHmac('sha256', secret)
-      .update(`${orderId}|${paymentId}`)
-      .digest('hex');
-
-    if (expectedSignature !== signature) {
-      return res.status(400).json({ message: 'Payment verification failed' });
-    }
-
-    const room = await Room.findById(roomId).select('creator entryFee participants').lean();
-    if (!room) return res.status(404).json({ success: false, message: 'Room not found' });
-
-    const fee = Number((room as any).entryFee || 0);
-    if (!fee || fee <= 0) {
-      return res.status(400).json({ message: 'This room is free' });
-    }
-
-    const alreadyParticipant = (room as any).participants?.map(String).includes(String(userId));
-    if (alreadyParticipant) {
-      return res.json({ ok: true, joined: true });
-    }
-
-    // record payment idempotently
-    let didCreatePayment = false;
-    try {
-      await RoomEntryPayment.create({
-        roomId,
-        payeeUserId: (room as any).creator,
-        payerUserId: userId,
-        orderId: String(orderId || ''),
-        paymentId: String(paymentId || ''),
-        amount: fee,
-      });
-      didCreatePayment = true;
-    } catch (e: any) {
-      if (e?.code !== 11000) throw e;
-    }
-
-    if (didCreatePayment) {
-      await User.findByIdAndUpdate((room as any).creator, { $inc: { totalEarnings: fee } }).lean();
-    }
-
-    await Room.findByIdAndUpdate(roomId, { $addToSet: { participants: userId } }).lean();
-
-    return res.json({ ok: true, joined: true });
-  } catch (error) {
-    console.error('Error verifying room entry payment:', error);
-    res.status(500).json({ message: 'Failed to verify payment' });
-  }
-};
 
 /**
  * Get room details
@@ -449,7 +253,10 @@ export const verifyNightRoomEntryPayment = async (req: Request, res: Response) =
 export const getRoomDetails = async (req: Request, res: Response) => {
   try {
     const roomId = req.params.id;
-    const room = await Room.findById(roomId).populate('creator', 'username name').populate('participants', 'username name').lean();
+    const room = await Room.findById(roomId)
+      .populate('creator', 'username name')
+      .populate('participants', 'username name')
+      .lean();
     if (!room) return res.status(404).json({ success: false, message: 'Room not found' });
     res.json({ success: true, room });
   } catch (error) {
@@ -474,23 +281,17 @@ export const postRoomComment = async (req: Request, res: Response) => {
     const room = await Room.findById(roomId);
     if (!room) return res.status(404).json({ success: false, message: 'Room not found' });
 
-    // Only participants can comment
     if (!room.participants.map(String).includes(String(userId))) {
       return res.status(403).json({ success: false, message: 'Only room participants can comment' });
     }
 
-    const commentData: any = {
-      room: roomId,
-      author: userId,
-    };
+    const commentData: any = { room: roomId, author: userId };
     if (content) commentData.content = content.trim();
     if (mediaUrl) commentData.mediaUrl = mediaUrl;
     if (mediaType) commentData.mediaType = mediaType;
 
-    // If this comment has no media it should be ephemeral (floating) and expire in ~10 seconds.
-    // If it contains media (image/video), do NOT set expiresAt so it persists until rooms are cleaned up.
     if (!mediaUrl) {
-      commentData.expiresAt = new Date(Date.now() + 10000); // 10 seconds from now
+      commentData.expiresAt = new Date(Date.now() + 10000);
     }
 
     const comment = new RoomComment(commentData);
@@ -510,7 +311,10 @@ export const postRoomComment = async (req: Request, res: Response) => {
 export const getRoomComments = async (req: Request, res: Response) => {
   try {
     const roomId = req.params.id;
-    const comments = await RoomComment.find({ room: roomId }).populate('author', 'username name').sort({ createdAt: 1 }).lean();
+    const comments = await RoomComment.find({ room: roomId })
+      .populate('author', 'username name')
+      .sort({ createdAt: 1 })
+      .lean();
     res.json({ success: true, comments });
   } catch (error) {
     console.error('Error fetching room comments:', error);
@@ -519,7 +323,8 @@ export const getRoomComments = async (req: Request, res: Response) => {
 };
 
 /**
- * Check if user can send photo/stream in room (creator only)
+ * Check if user can send photo/stream in room.
+ * In Study Mode, ALL participants can open their camera.
  */
 export const canSendMediaInRoom = async (req: Request, res: Response) => {
   try {
@@ -529,8 +334,9 @@ export const canSendMediaInRoom = async (req: Request, res: Response) => {
     const room = await Room.findById(roomId).lean();
     if (!room) return res.status(404).json({ success: false, message: 'Room not found' });
 
-    const isCreator = String(room.creator) === String(userId);
-    res.json({ success: true, canSend: isCreator });
+    // All participants can stream in Study Mode (like Zoom)
+    const isParticipant = room.participants.map(String).includes(String(userId));
+    res.json({ success: true, canSend: isParticipant, isCreator: String(room.creator) === String(userId) });
   } catch (error) {
     console.error('Error checking media permission:', error);
     res.status(500).json({ message: 'Server error' });
@@ -539,19 +345,18 @@ export const canSendMediaInRoom = async (req: Request, res: Response) => {
 
 /**
  * Clean up rooms after night mode ends (called from exitNightMode or scheduled)
+ * Rooms also auto-expire via MongoDB TTL index after 24 hours.
  */
 export const cleanupExpiredNightRooms = async () => {
   try {
     const cutoff = new Date();
-    cutoff.setHours(cutoff.getHours() - 12); // Delete rooms older than 12 hours
+    cutoff.setHours(cutoff.getHours() - 24); // Delete rooms older than 24 hours (one night)
 
-    // Find rooms to remove so we can delete associated comments and media files
     const roomsToDelete = await Room.find({ isNightRoom: true, createdAt: { $lt: cutoff } }).lean();
     let totalRooms = 0;
     for (const room of roomsToDelete) {
       totalRooms += 1;
       try {
-        // Find comments for this room that contain media
         const mediaComments = await RoomComment.find({ room: room._id, mediaUrl: { $exists: true, $ne: null } }).lean();
         for (const mc of mediaComments) {
           try {
@@ -560,15 +365,12 @@ export const cleanupExpiredNightRooms = async () => {
                 const filePath = path.join(base, filename);
                 await fs.promises.unlink(filePath).catch(() => {});
               };
-
-              // Parse filename from mediaUrl (expected to be /uploads/<filename>)
               try {
                 const parsed = new URL(mc.mediaUrl);
                 const filename = path.basename(parsed.pathname);
                 await tryUnlink(uploadsDir, filename);
                 await tryUnlink(legacyUploadsDir, filename);
               } catch (e) {
-                // If URL parsing fails, attempt a fallback by extracting after /uploads/
                 const idx = mc.mediaUrl.indexOf('/uploads/');
                 if (idx !== -1) {
                   const filename = mc.mediaUrl.substring(idx + '/uploads/'.length);
@@ -581,17 +383,12 @@ export const cleanupExpiredNightRooms = async () => {
             console.warn('Failed to remove media file for comment', mc._id, e);
           }
         }
-
-        // Delete all comments for the room (including media-less ones)
         await RoomComment.deleteMany({ room: room._id });
-
-        // Finally delete the room itself
         await Room.deleteOne({ _id: room._id });
       } catch (e) {
         console.error('Error deleting room and associated data for room', room._id, e);
       }
     }
-
     console.log(`Cleaned up ${totalRooms} expired night rooms`);
   } catch (error) {
     console.error('Error cleaning up night rooms:', error);
@@ -606,23 +403,13 @@ export const deleteNightPost = async (req: Request, res: Response) => {
     const userId = (req as any).user.id;
     const postId = req.params.id;
 
-    const post = await Post.findOneAndDelete({
-      _id: postId,
-      user: userId,
-      isNightPost: true
-    });
+    const post = await Post.findOneAndDelete({ _id: postId, user: userId, isNightPost: true });
 
     if (!post) {
-      return res.status(404).json({
-        success: false,
-        message: 'Night post not found or not authorized'
-      });
+      return res.status(404).json({ success: false, message: 'Night post not found or not authorized' });
     }
 
-    res.json({
-      success: true,
-      message: 'Night post deleted successfully'
-    });
+    res.json({ success: true, message: 'Night post deleted successfully' });
   } catch (error) {
     console.error('Error deleting night post:', error);
     res.status(500).json({ message: 'Server error' });
@@ -630,28 +417,21 @@ export const deleteNightPost = async (req: Request, res: Response) => {
 };
 
 /**
- * Get time until night mode (for daytime UI)
+ * Get Study Mode availability info — always available
  */
-export const getTimeUntilNightMode = async (
-  req: Request,
-  res: Response
-) => {
+export const getTimeUntilNightMode = async (req: Request, res: Response) => {
   try {
-    const timeInfo = getNightModeTimeInfo();
-
     res.json({
       success: true,
-      isCurrentlyInNightMode: timeInfo.isCurrentlyInNightMode,
-      isInEntryWindow: timeInfo.isInEntryWindow,
-      timeUntilNightMode: timeInfo.timeUntilNightMode,
-      timeUntilDayMode: timeInfo.timeUntilDayMode,
-      formattedTimeUntilNightMode: timeInfo.timeUntilNightMode
-        ? formatTimeRemaining(timeInfo.timeUntilNightMode)
-        : null,
-      message: timeInfo.message,
+      isCurrentlyInNightMode: true,
+      isInEntryWindow: true,
+      timeUntilNightMode: 0,
+      timeUntilDayMode: null,
+      formattedTimeUntilNightMode: null,
+      message: 'Study Mode is always available 📚',
     });
   } catch (error) {
-    console.error('Error getting time until night mode:', error);
+    console.error('Error getting study mode status:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -665,42 +445,27 @@ export const addNightPostReaction = async (req: Request, res: Response) => {
     const postId = req.params.id;
     const userId = String((req as any).user.id);
 
-    if (!emoji) {
-      return res.status(400).json({ message: 'Emoji is required' });
-    }
+    if (!emoji) return res.status(400).json({ message: 'Emoji is required' });
 
     const post = (await Post.findById(postId)) as any;
+    if (!post) return res.status(404).json({ success: false, message: 'Post not found' });
 
-    if (!post) {
-      return res.status(404).json({ success: false, message: 'Post not found' });
-    }
-
-    if (!post.reactions) {
-      post.reactions = new Map();
-    }
-
-    if (!post.userReactions) {
-      post.userReactions = new Map();
-    }
+    if (!post.reactions) post.reactions = new Map();
+    if (!post.userReactions) post.userReactions = new Map();
 
     const userCurrentEmoji = post.userReactions.get(userId);
 
-    // If clicking the same emoji, remove the reaction (toggle off)
     if (userCurrentEmoji === emoji) {
-      // Decrease reaction count
       const currentCount = ((post.reactions.get(emoji) as number) || 0);
       if (currentCount > 1) {
         post.reactions.set(emoji, currentCount - 1);
       } else {
         post.reactions.delete(emoji);
       }
-      // Remove user's reaction
       post.userReactions.delete(userId);
     } else if (userCurrentEmoji) {
-      // If clicking a different emoji, prevent it
       return res.status(400).json({ message: 'You have already reacted to this post' });
     } else {
-      // First reaction - add it
       const currentCount = ((post.reactions.get(emoji) as number) || 0);
       post.reactions.set(emoji, currentCount + 1);
       post.userReactions.set(userId, emoji);
@@ -731,15 +496,9 @@ export const addNightPostComment = async (req: Request, res: Response) => {
     }
 
     const post = await Post.findById(postId);
-    if (!post) {
-      return res.status(404).json({ success: false, message: 'Post not found' });
-    }
+    if (!post) return res.status(404).json({ success: false, message: 'Post not found' });
 
-    post.comments.push({
-      user: userId,
-      content: content.trim(),
-      createdAt: new Date(),
-    });
+    post.comments.push({ user: userId, content: content.trim(), createdAt: new Date() });
 
     await post.save();
     await post.populate('user', 'username name');

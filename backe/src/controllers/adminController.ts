@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import WithdrawalRequest from '../models/WithdrawalRequest.js';
 import User from '../models/User.js';
+import Post from '../models/Post.js';
 import { AuthRequest } from '../middleware/auth.js';
 
 export const getAllWithdrawalRequests = async (req: AuthRequest, res: Response) => {
@@ -192,6 +193,110 @@ export const deleteAdminUser = async (req: AuthRequest, res: Response) => {
     } catch {}
 
     res.json({ ok: true, message: `Admin deleted: ${rawEmail}` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+/**
+ * List all users (for admin member management)
+ */
+export const listAllUsers = async (req: AuthRequest, res: Response) => {
+  try {
+    const page = Math.max(1, Number((req.query as any)?.page || 1));
+    const limit = Math.min(100, Math.max(1, Number((req.query as any)?.limit || 50)));
+    const search = String((req.query as any)?.search || '').trim();
+
+    const query: any = { isAdmin: { $ne: true } };
+    if (search) {
+      query.$or = [
+        { username: { $regex: search, $options: 'i' } },
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const total = await User.countDocuments(query);
+    const users = await User.find(query)
+      .select('_id username name email isAdmin isInNightMode isOnline createdAt profilePicture isBanned')
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean();
+
+    res.json({ ok: true, users, total, page, limit });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+/**
+ * Remove / ban a member from the platform
+ */
+export const removeMember = async (req: AuthRequest, res: Response) => {
+  try {
+    const targetId = String(req.params.id || '').trim();
+    if (!targetId) return res.status(400).json({ message: 'User ID required' });
+
+    const target = await User.findById(targetId);
+    if (!target) return res.status(404).json({ message: 'User not found' });
+    if ((target as any).isAdmin) return res.status(400).json({ message: 'Cannot remove an admin account' });
+    if (String(target._id) === String(req.user?._id)) {
+      return res.status(400).json({ message: 'Cannot remove yourself' });
+    }
+
+    // Delete all their posts
+    await Post.deleteMany({ user: targetId });
+
+    // Remove them from followers/following lists of others
+    await User.updateMany({ following: target._id }, { $pull: { following: target._id } });
+    await User.updateMany({ followers: target._id }, { $pull: { followers: target._id } });
+
+    // Revoke their Study Mode access
+    await User.findByIdAndUpdate(targetId, { isInNightMode: false });
+
+    // Delete their refresh tokens
+    try {
+      const RefreshToken = (await import('../models/RefreshToken.js')).default;
+      await RefreshToken.deleteMany({ user: target._id });
+    } catch {}
+
+    // Finally delete the user
+    await User.deleteOne({ _id: targetId });
+
+    res.json({ ok: true, message: `User @${target.username} has been removed from the platform` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+/**
+ * Approve Study Mode access for a user
+ */
+export const approveStudyMode = async (req: AuthRequest, res: Response) => {
+  try {
+    const targetId = String(req.params.id || '').trim();
+    const { approve } = req.body as any;
+    if (!targetId) return res.status(400).json({ message: 'User ID required' });
+
+    const target = await User.findById(targetId);
+    if (!target) return res.status(404).json({ message: 'User not found' });
+
+    const isApproved = approve === true || approve === 'true';
+    await User.findByIdAndUpdate(targetId, {
+      isInNightMode: isApproved,
+      ...(isApproved ? { nightModeEnteredAt: new Date() } : { lastNightModeExit: new Date() }),
+    });
+
+    res.json({
+      ok: true,
+      message: isApproved
+        ? `Study Mode approved for @${target.username}`
+        : `Study Mode revoked for @${target.username}`,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });

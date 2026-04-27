@@ -19,4 +19,7 @@ const RoomSchema = new Schema<IRoom>(
   { timestamps: true }
 );
 
+// Auto-delete rooms after 24 hours (one night)
+RoomSchema.index({ createdAt: 1 }, { expireAfterSeconds: 86400 });
+
 export default mongoose.model<IRoom>('Room', RoomSchema);

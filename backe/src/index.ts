@@ -29,6 +29,7 @@ import authRoutes from './routes/auth.js';
 import { initSocket } from './socket/index.js';
 import usersRoutes from './routes/users.js';
 import groupsRoutes from './routes/groups.js';
+import communitiesRoutes from './routes/communities.js';
 import chatsRoutes from './routes/chats.js';
 import statusRoutes from './routes/status.js';
 import postsRoutes from './routes/posts.js';
@@ -37,7 +38,7 @@ import nightModeRoutes from './routes/nightMode.js';
 import uploadRoutes from './routes/upload.js';
 import debugRoutes from './routes/debug.js';
 import reportsRoutes from './routes/reports.js';
-import withdrawalsRoutes from './routes/withdrawals.js';
+
 import adminRoutes from './routes/admin.js';
 import helmet from "helmet";
 import { perUserRateLimiter } from './middleware/rateLimiter.js';
@@ -162,13 +163,14 @@ export function createApp() {
   }
 
   app.use('/api/groups', groupsRoutes);
+  app.use('/api/communities', communitiesRoutes);
   app.use('/api/chats', chatsRoutes);
   app.use('/api/status', statusRoutes);
   app.use('/api/posts', postsRoutes);
   app.use('/api/notifications', notificationsRoutes);
   app.use('/api/night-mode', nightModeRoutes);
   app.use('/api/upload', uploadRoutes);
-  app.use('/api/withdrawals', withdrawalsRoutes);
+
   app.use('/api/reports', reportsRoutes);
   app.use('/api/admin', adminRoutes);
 
@@ -298,9 +300,10 @@ export async function createServer() {
   await mongoose.connect(uri);
 
   try {
-    const { migrateRoomCommentIndexes, migrateGroupIndexes } = await import('./scripts/migrateIndexes.js');
+    const { migrateRoomCommentIndexes, migrateGroupIndexes, migrateUserIndexes } = await import('./scripts/migrateIndexes.js');
     await migrateRoomCommentIndexes();
     await migrateGroupIndexes();
+    await migrateUserIndexes();
   } catch (err) {
     console.warn('Index migration step failed or skipped', err);
   }

@@ -9,6 +9,12 @@ export interface IUser extends Document {
   password: string;
   profilePicture?: string;
   about?: string;
+  professionType?: 'Student' | 'Working Professional';
+  professionDetail?: string;
+  educationLevel?: 'Matriculation' | 'Intermediate' | 'Undergraduate' | 'Postgraduate';
+  additionalDetails?: string[];
+  statusStreak?: number;
+  lastStatusAt?: Date;
   totalEarnings?: number;
   withdrawnTotal?: number;
   isAdmin?: boolean;
@@ -63,6 +69,10 @@ if (useInMemory) {
     password: string;
     profilePicture?: string;
     about?: string;
+    professionType?: 'Student' | 'Working Professional';
+    professionDetail?: string;
+    educationLevel?: 'Matriculation' | 'Intermediate' | 'Undergraduate' | 'Postgraduate';
+    additionalDetails?: string[];
     totalEarnings?: number;
     withdrawnTotal?: number;
     // track failed login attempts & lockout
@@ -96,6 +106,10 @@ if (useInMemory) {
     password: string;
     profilePicture?: string;
     about?: string;
+    professionType?: 'Student' | 'Working Professional';
+    professionDetail?: string;
+    educationLevel?: 'Matriculation' | 'Intermediate' | 'Undergraduate' | 'Postgraduate';
+    additionalDetails?: string[];
     totalEarnings?: number;
     withdrawnTotal?: number;
     failedLoginAttempts?: number;
@@ -124,6 +138,10 @@ if (useInMemory) {
       this.password = data.password;
       this.profilePicture = data.profilePicture;
       this.about = data.about;
+      this.professionType = data.professionType;
+      this.professionDetail = data.professionDetail;
+      this.educationLevel = data.educationLevel;
+      this.additionalDetails = Array.isArray(data.additionalDetails) ? data.additionalDetails : [];
       this.totalEarnings = Number(data.totalEarnings || 0);
       this.withdrawnTotal = Number(data.withdrawnTotal || 0);
       this.failedLoginAttempts = data.failedLoginAttempts || 0;
@@ -149,11 +167,11 @@ if (useInMemory) {
     }
 
     static async findOne(query: any) {
-      if (query?.email) {
-        for (const u of users.values()) {
-          if (u.email === query.email) return new InMemoryUser(u);
-        }
-        return null;
+      if (!query) return null;
+      for (const u of users.values()) {
+        if (query.email && u.email === query.email) return new InMemoryUser(u);
+        if (query.username && u.username === query.username) return new InMemoryUser(u);
+        if (query._id && String(u._id) === String(query._id)) return new InMemoryUser(u);
       }
       return null;
     }
@@ -257,14 +275,28 @@ if (useInMemory) {
 
     static async isUsernameAvailable(
       _username: string,
-      _coordinates: [number, number],
-      _radiusMeters = 2000,
+      _coordinates?: [number, number],
+      _radiusMeters?: number,
       _excludeUserId?: string | mongoose.Types.ObjectId
     ) {
+      const existing = Array.from(users.values()).find(u => u.username === _username);
+      if (existing && _excludeUserId && existing._id !== _excludeUserId.toString()) {
+        return false;
+      }
+      if (existing && !_excludeUserId) {
+        return false;
+      }
       return true;
     }
 
     async save() {
+      const duplicate = Array.from(users.values()).find(
+        (u) => u.username === this.username && u._id !== this._id
+      );
+      if (duplicate) {
+        throw new Error('Username already taken');
+      }
+
       const hashed =
         this.password && this.password.startsWith('$2')
           ? this.password
@@ -278,6 +310,10 @@ if (useInMemory) {
         password: hashed,
         profilePicture: this.profilePicture,
         about: this.about,
+        professionType: this.professionType,
+        professionDetail: this.professionDetail,
+        educationLevel: this.educationLevel,
+        additionalDetails: this.additionalDetails,
         totalEarnings: Number(this.totalEarnings || 0),
         withdrawnTotal: Number(this.withdrawnTotal || 0),
         // include new fields in memory version
@@ -313,13 +349,19 @@ if (useInMemory) {
 
   const UserSchema = new Schema<IUser>(
   {
-    username: { type: String, required: true },
+    username: { type: String, required: true, unique: true },
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true, index: true },
     phone: { type: String },
     password: { type: String, required: true },
     profilePicture: { type: String },
     about: { type: String, default: '', maxlength: 280 },
+    professionType: { type: String, enum: ['Student', 'Working Professional'] },
+    professionDetail: { type: String, maxlength: 280 },
+    educationLevel: { type: String, enum: ['Matriculation', 'Intermediate', 'Undergraduate', 'Postgraduate'] },
+    additionalDetails: [{ type: String, maxlength: 280 }],
+    statusStreak: { type: Number, default: 0 },
+    lastStatusAt: { type: Date },
     totalEarnings: { type: Number, default: 0, min: 0 },
     withdrawnTotal: { type: Number, default: 0, min: 0 },
     // login lockout info
@@ -381,23 +423,15 @@ UserSchema.methods.comparePassword = async function (candidate: string) {
   return bcrypt.compare(candidate, this.password);
 };
 
-// Static helper to check username availability within radius (in meters)
+// Static helper to check username availability globally
 // Optionally exclude a user ID (useful when checking availability for the same user)
 UserSchema.statics.isUsernameAvailable = async function (
   username: string,
-  coordinates: [number, number],
-  radiusMeters = 2000,
+  coordinates?: [number, number],
+  radiusMeters?: number,
   excludeUserId?: string | mongoose.Types.ObjectId
 ) {
-  const query: any = {
-    username,
-    location: {
-      $nearSphere: {
-        $geometry: { type: 'Point', coordinates },
-        $maxDistance: radiusMeters,
-      },
-    },
-  };
+  const query: any = { username };
   if (excludeUserId) {
     const excludeId =
       typeof excludeUserId === 'string' && mongoose.isValidObjectId(excludeUserId)

@@ -83,16 +83,13 @@ export default function Home() {
   // Show normal feed with night mode entry point
   console.log('Showing NightModePanel');
   return (
-    <div className="w-full min-h-screen bg-white">
-      {/* DEBUG PANEL */}
-      <div className="fixed top-0 left-0 right-0 bg-yellow-100 border-2 border-yellow-400 p-4 z-50">
-        <p className="text-sm font-bold">🔍 DEBUG: Home Component</p>
-        <p className="text-xs">User: {user ? '✓ Logged' : '✗ No'}</p>
-        <p className="text-xs">Loading: {loading ? '✓ Yes' : '✗ No'}</p>
-        <p className="text-xs">isInNightMode: {isInNightMode ? '✓ Yes' : '✗ No'}</p>
-      </div>
-      
-      <div className="pt-20">
+    <div className="w-full min-h-screen bg-gradient-to-br from-slate-50 via-white to-purple-50">
+      <div className="pt-6 px-4 max-w-lg mx-auto">
+        {/* Header */}
+        <div className="text-center mb-6">
+          <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">Sociovio</h1>
+          <p className="text-gray-500 text-sm mt-1">Welcome to your social space</p>
+        </div>
         <NightModePanel onEnterNightMode={handleEnterNightMode} />
       </div>
     </div>

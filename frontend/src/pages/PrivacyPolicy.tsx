@@ -8,137 +8,105 @@ export default function PrivacyPolicy() {
       </h1>
 
       <div className="space-y-8">
-        {/* Section 1 */}
         <section>
           <h2 className="text-2xl font-semibold mb-4 text-neutral-900 dark:text-neutral-50">
             1. Introduction
           </h2>
           <p className="text-neutral-700 dark:text-neutral-300 leading-relaxed">
-            We are committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our application, including all features and functionalities offered through our platform.
+            We are committed to protecting your privacy. This Privacy Policy explains what information we collect, how we use it, and the choices you have when using our application.
           </p>
         </section>
 
-        {/* Section 2 */}
         <section>
           <h2 className="text-2xl font-semibold mb-4 text-neutral-900 dark:text-neutral-50">
             2. Information We Collect
           </h2>
           <p className="text-neutral-700 dark:text-neutral-300 leading-relaxed mb-3">
-            We may collect information about you in a variety of ways. The information we may collect on our application includes:
+            We collect information to provide and improve our services. The information we collect may include:
           </p>
           <ul className="list-disc list-inside text-neutral-700 dark:text-neutral-300 space-y-2 ml-4">
-            <li><strong>Personal Data:</strong> Name, email address, phone number, username, password(encrypted), and other registration information</li>
-            <li><strong>Profile Information:</strong> Profile picture, bio, preferences, and settings</li>
-            <li><strong>Usage Data:</strong> IP address, browser type, pages visited, time and date of visits, and actions taken within the application</li>
-            <li><strong>Communication Data:</strong>  chats, group conversations  are encrypted</li>
-            <li><strong>Payment Information:</strong> Payment method, transaction history, and billing information</li>
+            <li><strong>Account Information:</strong> email address, username, password hash, profile image, bio, and preferences</li>
+            <li><strong>Usage Information:</strong> device type, browser, IP address, pages visited, and actions taken in the application</li>
+            <li><strong>Message Metadata:</strong> timestamps, sender and recipient identifiers, and message delivery status</li>
+            <li><strong>User Content:</strong> messages, comments, uploaded images, and other content you choose to share</li>
+            <li><strong>Support Data:</strong> communications with our support team, feedback, and reports</li>
           </ul>
         </section>
 
-        {/* Section 3 */}
         <section>
           <h2 className="text-2xl font-semibold mb-4 text-neutral-900 dark:text-neutral-50">
-            3. Use of Your Information
+            3. How We Use Your Information
           </h2>
           <p className="text-neutral-700 dark:text-neutral-300 leading-relaxed mb-3">
-            Having accurate information about you permits us to provide you with a smooth, efficient, and customized experience. Specifically, we may use information collected about you via our application to:
+            We use your information to operate, maintain, and provide features of the application. This includes:
           </p>
           <ul className="list-disc list-inside text-neutral-700 dark:text-neutral-300 space-y-2 ml-4">
-            <li>Create and manage your account</li>
-            <li>Email you regarding your account or order</li>
-            <li>Fulfill and send out orders, and send related information</li>
-            <li>Generate a personal profile to make future visits to our application easier</li>
-            <li>Improve our application based on feedback</li>
-            <li>Respond to your inquiries and offer support</li>
-            <li>Monitor and analyze trends and usage for marketing purposes</li>
-            <li>Detect, investigate, and prevent fraudulent transactions and other illegal activities</li>
+            <li>Creating and managing your account</li>
+            <li>Delivering messages, chats, and community interactions</li>
+            <li>Personalizing your experience and preferences</li>
+            <li>Providing customer support and responding to inquiries</li>
+            <li>Detecting, preventing, and investigating abuse, fraud, and security issues</li>
+            <li>Analyzing usage trends to improve the application</li>
           </ul>
         </section>
 
-        {/* Section 4 */}
         <section>
           <h2 className="text-2xl font-semibold mb-4 text-neutral-900 dark:text-neutral-50">
-            4. Disclosure of Your Information
-          </h2>
+            4. Information Sharing</h2>
           <p className="text-neutral-700 dark:text-neutral-300 leading-relaxed mb-3">
-            We may share your information in the following situations:
+            We do not sell your personal information. We may share information in the following situations:
           </p>
           <ul className="list-disc list-inside text-neutral-700 dark:text-neutral-300 space-y-2 ml-4">
-            <li><strong>By Law or to Protect Rights:</strong> When required by law or when we believe in good faith that disclosure is necessary to protect our rights, your safety or the safety of others</li>
-            <li><strong>Third-Party Service Providers:</strong> We may share your information with vendors, consultants, and other service providers who need access to such information to carry out work on our behalf</li>
-            <li><strong>Business Transfers:</strong> If we are involved in a merger, acquisition, or asset sale, your information may be transferred as part of that transaction</li>
-            <li><strong>Other Users:</strong> Your profile information and communications may be visible to other users of the application as part of the service</li>
+            <li><strong>Service Providers:</strong> third parties who help us operate the application and provide services such as hosting, analytics, and payment processing</li>
+            <li><strong>Legal Requirements:</strong> when required by law, court order, or government request, or to protect the rights, property, or safety of our users or others</li>
+            <li><strong>Business Transfers:</strong> in connection with a merger, acquisition, or sale of assets</li>
+            <li><strong>Other Users:</strong> content you post or share may be visible to other users as part of the application functionality</li>
           </ul>
         </section>
 
-        {/* Section 5 */}
         <section>
           <h2 className="text-2xl font-semibold mb-4 text-neutral-900 dark:text-neutral-50">
-            5. Security of Your Information
-          </h2>
+            5. Cookies and Tracking</h2>
           <p className="text-neutral-700 dark:text-neutral-300 leading-relaxed">
-            We use administrative, technical, and physical security measures to protect your personal information. However, no method of transmission over the Internet or method of electronic storage is 100% secure. While we strive to use commercially acceptable means to protect your personal information, we cannot guarantee its absolute security.
+            We may use cookies and similar technologies to remember your preferences, support login sessions, and analyze how the application is used. You can control cookies through your browser settings, but disabling cookies may affect the application's functionality.
           </p>
         </section>
 
-        {/* Section 6 */}
         <section>
           <h2 className="text-2xl font-semibold mb-4 text-neutral-900 dark:text-neutral-50">
-            6. Contact Us & Cookies
-          </h2>
+            6. Security</h2>
+          <p className="text-neutral-700 dark:text-neutral-300 leading-relaxed">
+            We take reasonable measures to protect your information and use appropriate technical and organizational safeguards. However, no system is entirely secure, and we cannot guarantee the absolute security of your data.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-2xl font-semibold mb-4 text-neutral-900 dark:text-neutral-50">
+            7. Data Retention</h2>
+          <p className="text-neutral-700 dark:text-neutral-300 leading-relaxed">
+            We retain your information for as long as necessary to provide the application, comply with legal obligations, resolve disputes, and enforce agreements.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-2xl font-semibold mb-4 text-neutral-900 dark:text-neutral-50">
+            8. Your Rights</h2>
           <p className="text-neutral-700 dark:text-neutral-300 leading-relaxed mb-3">
-            We may use cookies and similar tracking technologies to track activity on our application and hold certain information. You can instruct your browser to refuse all cookies or to indicate when a cookie is being sent.
+            Depending on your location, you may have rights to access, correct, or delete your information, and to object to certain processing. To exercise your rights, contact us using the information below.
           </p>
+        </section>
+
+        <section>
+          <h2 className="text-2xl font-semibold mb-4 text-neutral-900 dark:text-neutral-50">
+            9. Changes to This Policy</h2>
           <p className="text-neutral-700 dark:text-neutral-300 leading-relaxed">
-            If you have questions or are unsure about our privacy practices, please contact us at{' '}
-            <a href="mailto:sociovio4@gmail.com" className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-200 underline">
-              sociovio4@gmail.com
-            </a>
+            We may update this Privacy Policy from time to time. When we make changes, we will revise the "Last updated" date at the bottom of this page.
           </p>
         </section>
 
-        {/* Section 7 */}
         <section>
           <h2 className="text-2xl font-semibold mb-4 text-neutral-900 dark:text-neutral-50">
-            7. Changes to This Privacy Policy
-          </h2>
-          <p className="text-neutral-700 dark:text-neutral-300 leading-relaxed">
-            We may update this Privacy Policy from time to time in order to reflect, for example, changes to our practices or for other operational, legal, or regulatory reasons. We will notify you of any changes by updating the "Last updated" date of this Privacy Policy.
-          </p>
-        </section>
-
-        {/* Section 8 */}
-        <section>
-          <h2 className="text-2xl font-semibold mb-4 text-neutral-900 dark:text-neutral-50">
-            8. Your Privacy Rights
-          </h2>
-          <p className="text-neutral-700 dark:text-neutral-300 leading-relaxed mb-3">
-            You have the right to:
-          </p>
-          <ul className="list-disc list-inside text-neutral-700 dark:text-neutral-300 space-y-2 ml-4">
-            <li>Access the personal information we hold about you</li>
-            <li>Request correction of inaccurate or incomplete data</li>
-            <li>Request deletion of your personal information</li>
-            <li>Opt-out of marketing communications</li>
-            <li>Export your data in a portable format</li>
-          </ul>
-        </section>
-
-        {/* Section 9 */}
-        <section>
-          <h2 className="text-2xl font-semibold mb-4 text-neutral-900 dark:text-neutral-50">
-            9. Data Retention
-          </h2>
-          <p className="text-neutral-700 dark:text-neutral-300 leading-relaxed">
-            We retain your personal information for as long as your account is active or as needed to provide you with our services. You can request deletion of your data at any time by contacting us, subject to certain legal obligations.
-          </p>
-        </section>
-
-        {/* Section 10 */}
-        <section>
-          <h2 className="text-2xl font-semibold mb-4 text-neutral-900 dark:text-neutral-50">
-            10. Contact Information
-          </h2>
+            10. Contact Information</h2>
           <p className="text-neutral-700 dark:text-neutral-300 leading-relaxed">
             If you have questions about this Privacy Policy or our privacy practices, please contact us at{' '}
             <a href="mailto:sociovio4@gmail.com" className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-200 underline">

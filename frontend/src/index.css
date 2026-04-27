@@ -4,9 +4,11 @@
 
 html, body, #root { height: 100%; }
 
-/* Ensure emoji fonts are available */
+/* Safe area insets for iOS devices with notches */
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
 }
 
 /* Utility to hide scrollbars while keeping scrolling functional */
@@ -16,4 +18,39 @@ body {
 }
 .hide-scrollbar::-webkit-scrollbar {
   display: none; /* Safari and Chrome */
+}
+
+/* Smooth page transitions */
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Animation for background orbs */
+@keyframes blob {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -50px) scale(1.1); }
+  66% { transform: translate(-20px, 20px) scale(0.9); }
+}
+
+/* Subtle hover lift effect */
+.hover-lift {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+}
+
+/* Mobile touch optimizations */
+@media (max-width: 640px) {
+  /* Prevent double-tap zoom on interactive elements */
+  button, a, input, select {
+    touch-action: manipulation;
+  }
+
+  /* Better touch targets */
+  input, button {
+    min-height: 44px;
+  }
 } 

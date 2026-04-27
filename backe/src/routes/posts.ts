@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { createPost, getPosts, getPostById, updatePost, deletePost, likePost, addComment, getPostsByUsername, addReaction, getPrivateSongs, createUnlockOrder, verifyUnlockPayment } from '../controllers/postsController.js';
+import { createPost, getPosts, getPostById, updatePost, deletePost, likePost, addComment, getPostsByUsername, addReaction, getPrivateSongs } from '../controllers/postsController.js';
 import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import multer from 'multer';
 import path from 'path';
@@ -147,7 +147,6 @@ router.delete('/:id', requireAuth, deletePost);
 router.post('/:id/like', requireAuth, likePost);
 router.post('/:id/comment', requireAuth, addComment);
 router.post('/:id/react', requireAuth, addReaction);
-router.post('/:id/unlock/order', requireAuth, createUnlockOrder);
-router.post('/:id/unlock/verify', requireAuth, verifyUnlockPayment);
+
 
 export default router;

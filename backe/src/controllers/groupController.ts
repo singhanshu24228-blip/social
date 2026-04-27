@@ -20,20 +20,15 @@ export const listAvailableGroups = async (req: AuthRequest, res: Response) => {
       return res.status(401).json({ message: 'Unauthorized' });
     }
 
-    // Return only PUBLIC groups where user is creator or member
     const groups = await Group.find({
       groupType: 'PUBLIC',
-      $or: [
-        { createdBy: authUserId },
-        { members: authUserId }
-      ]
+      $or: [{ createdBy: authUserId }, { members: authUserId }],
     })
       .select('_id groupName members createdBy')
       .sort({ createdAt: -1 })
       .limit(50)
       .lean();
 
-    // For each group, determine if user is a member (they should be for all returned groups)
     const memberSet = new Set<string>();
     for (const g of groups) {
       if ((g.members || []).some((m: any) => String(m) === String(authUserId))) {
@@ -45,10 +40,10 @@ export const listAvailableGroups = async (req: AuthRequest, res: Response) => {
       id: g._id,
       groupName: g.groupName,
       groupType: 'PUBLIC',
-      distanceRange: 'PUBLIC', // Dummy value for compatibility
-      distanceMeters: 0, // Dummy value for compatibility
+      distanceRange: 'PUBLIC',
+      distanceMeters: 0,
       isMember: memberSet.has(String(g._id)),
-      isCreator: String(g.createdBy) === String(authUserId)
+      isCreator: String(g.createdBy) === String(authUserId),
     }));
 
     res.json({ groups: resGroups });
@@ -71,7 +66,6 @@ export const createPublicGroup = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ message: 'Group name must be 3-40 characters' });
     }
 
-    // Basic allowlist (letters, numbers, space, underscore, dash, dot)
     if (!/^[A-Za-z0-9 _.-]+$/.test(groupName)) {
       return res.status(400).json({ message: 'Group name contains invalid characters' });
     }
@@ -86,7 +80,6 @@ export const createPublicGroup = async (req: AuthRequest, res: Response) => {
       groupType: 'PUBLIC',
       createdBy: userId,
       members: [userId],
-      // Defensive: make sure PUBLIC groups never persist a partial geo object.
       location: undefined,
     });
 
@@ -103,14 +96,12 @@ export const createPublicGroup = async (req: AuthRequest, res: Response) => {
     });
   } catch (err) {
     const anyErr: any = err;
-    // Geo-index related insert failure (typically from an old non-partial 2dsphere index in the DB).
     if (anyErr?.code === 16755) {
       return res.status(500).json({
         message:
           'Group index mismatch on server. Please restart the backend once so it can migrate Group indexes, then retry.',
       });
     }
-    // Duplicate key error (race condition vs pre-check)
     if (anyErr?.code === 11000) {
       return res.status(409).json({ message: 'Group name already exists' });
     }
@@ -221,7 +212,6 @@ export const getGroupMessages = async (req: AuthRequest, res: Response) => {
       .populate('senderId', 'username name')
       .lean();
 
-    // Normalize sender field
     const out = msgs.map((m: any) => ({
       id: m._id,
       groupId: m.groupId,
@@ -289,11 +279,10 @@ export const joinGroup = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ message: 'Group location missing' });
     }
 
-    // Ensure user is within allowed range to join
     const user = await User.findById(userId);
     if (!user || !user.location) return res.status(400).json({ message: 'User location required' });
     function haversine([lng1, lat1]: [number, number], [lng2, lat2]: [number, number]) {
-      const R = 6371e3; // meters
+      const R = 6371e3;
       const toRad = (v: number) => (v * Math.PI) / 180;
       const dLat = toRad(lat2 - lat1);
       const dLon = toRad(lng2 - lng1);

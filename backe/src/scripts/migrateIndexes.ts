@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import RoomComment from '../models/RoomComment.js';
 import Group from '../models/Group.js';
+import User from '../models/User.js';
 
 export async function migrateRoomCommentIndexes() {
   const db = mongoose.connection.db;
@@ -93,5 +94,39 @@ export async function migrateGroupIndexes() {
     }
   } catch (e) {
     console.error('[migrate] Error migrating Group indexes:', e);
+  }
+}
+
+export async function migrateUserIndexes() {
+  const db = mongoose.connection.db;
+  const collName = 'users';
+  try {
+    const collections = await db.listCollections({ name: collName }).toArray();
+    if (collections.length === 0) {
+      console.log(`[migrate] Collection ${collName} does not exist yet.`);
+      return;
+    }
+
+    const coll = db.collection(collName);
+    const indexes = await coll.indexes();
+    for (const idx of indexes) {
+      if (idx?.key && (idx.key as any).username === 1 && !idx.unique) {
+        try {
+          await coll.dropIndex(idx.name);
+          console.log(`[migrate] Dropped old non-unique username index: ${idx.name}`);
+        } catch (e: any) {
+          console.warn(`[migrate] Failed to drop index ${idx.name}:`, e.message || e);
+        }
+      }
+    }
+
+    try {
+      await User.createIndexes();
+      console.log('[migrate] Ensured User indexes');
+    } catch (e) {
+      console.warn('[migrate] User.createIndexes failed:', e instanceof Error ? e.message : String(e));
+    }
+  } catch (e) {
+    console.error('[migrate] Error migrating User indexes:', e);
   }
 }

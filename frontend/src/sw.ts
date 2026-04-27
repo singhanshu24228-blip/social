@@ -1,14 +1,17 @@
+/// <reference lib="webworker" />
+const sw = globalThis as unknown as ServiceWorkerGlobalScope;
+
 // Service Worker for caching and offline support
 const CACHE_NAME = 'your-voice-cache-v3';
 const UPLOAD_CACHE_NAME = 'your-voice-uploads-v3';
 const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif'];
 
-self.addEventListener('install', (event: any) => {
+sw.addEventListener('install', (event: any) => {
   console.log('[SW] Installing service worker');
-  self.skipWaiting();
+  sw.skipWaiting();
 });
 
-self.addEventListener('activate', (event: any) => {
+sw.addEventListener('activate', (event: any) => {
   console.log('[SW] Activating service worker');
   event.waitUntil(
     caches.keys().then((cacheNames: string[]) => {
@@ -22,7 +25,7 @@ self.addEventListener('activate', (event: any) => {
       );
     })
   );
-  self.clients.claim();
+  sw.clients.claim();
 });
 
 // Helper to check if response is valid (not corrupted)
@@ -66,7 +69,7 @@ function isImageUpload(url: string): boolean {
   }
 }
 
-self.addEventListener('fetch', (event: any) => {
+sw.addEventListener('fetch', (event: any) => {
   const { request } = event;
   const url = request.url;
 

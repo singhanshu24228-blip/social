@@ -6,6 +6,9 @@ import {
   rejectWithdrawalRequest,
   createAdminUser,
   deleteAdminUser,
+  listAllUsers,
+  removeMember,
+  approveStudyMode,
 } from '../controllers/adminController.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requireAdmin } from '../middleware/requireAdmin.js';
@@ -31,5 +34,10 @@ router.post('/withdrawals/:id/reject', rejectWithdrawalRequest);
 router.post('/admins', createAdminUser);
 // Delete an admin account (requires target admin's credentials)
 router.post('/admins/delete', deleteAdminUser);
+
+// Member management
+router.get('/users', listAllUsers);
+router.delete('/users/:id', removeMember);
+router.post('/users/:id/study-mode', approveStudyMode);
 
 export default router;

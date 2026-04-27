@@ -504,123 +504,85 @@ const RoomView: React.FC<RoomViewProps> = ({ roomId, onClose, currentUserId }) =
   if (!room) return <div className="text-red-400">Room not found</div>;
 
   return (
-    <div className="fixed inset-0 z-50 bg-gray-900 flex flex-col">
+    <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'linear-gradient(160deg,#0f172a,#1e293b)', display: 'flex', flexDirection: 'column', color: '#e2e8f0', fontFamily: '"Inter",system-ui,sans-serif' }}>
       {/* Header */}
-      <div className="p-4 border-b border-purple-500/30 flex justify-between items-center">
+      <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(251,191,36,.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(15,23,42,.8)', backdropFilter: 'blur(10px)' }}>
         <div>
-          <h2 className="text-lg sm:text-xl font-semibold truncate max-w-[70vw]">{room.name}</h2>
-          <p className="text-xs text-gray-400">by {room.creator?.name}</p>
+          <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#fbbf24' }}>📹 {room.name}</h2>
+          <p style={{ margin: 0, fontSize: 12, color: '#475569' }}>by {room.creator?.name} · {room.participants?.length || 0} participants</p>
         </div>
-        <button
-          onClick={onClose}
-          className="px-3 py-2 bg-gray-700 text-white rounded-full hover:bg-gray-600 touch-manipulation"
-          aria-label="Close room"
-        >
-          ✕
+        <button onClick={onClose}
+          style={{ padding: '8px 14px', background: 'rgba(100,116,139,.2)', color: '#94a3b8', border: '1px solid rgba(100,116,139,.3)', borderRadius: 20, cursor: 'pointer', fontSize: 13 }}>
+          ✕ Leave
         </button>
       </div>
 
-      {/* Info */}
-      <div className="p-4 border-b border-purple-500/30 text-sm text-gray-300">
-        <div className="flex items-center justify-between">
-          <div className="text-sm">
-            <span>Participants: {room.participants?.length || 0}</span>
-            {canSendMedia && <span className="ml-3 block sm:inline">✅ You can stream/send photos</span>}
-            {!canSendMedia && String(currentUserId) !== String(room.creator._id) && (
-              <span className="ml-3 block sm:inline text-gray-400">Only creator can stream/send photos</span>
-            )}
-          </div>
+      {/* Camera Controls — all participants */}
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(251,191,36,.1)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, color: '#64748b' }}>
+            {canSendMedia ? '🎥 You can open your camera' : '⏳ Join the room to use camera'}
+          </span>
         </div>
-
-        {/* Creator Media Controls */}
         {canSendMedia && (
-          <div className="mt-3 flex gap-2">
-            <button
-              onClick={toggleStream}
-              className={`px-3 py-1 rounded text-sm font-semibold transition-all ${
-                isStreaming
-                  ? 'bg-red-600 text-white hover:bg-red-500'
-                  : 'bg-blue-600 text-white hover:bg-blue-500'
-              }`}
-            >
-              {isStreaming ? '🔴 Stop Stream' : '🎥 Start Stream'}
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button onClick={toggleStream}
+              style={{ padding: '8px 16px', borderRadius: 20, border: 'none', fontWeight: 700, fontSize: 13, cursor: 'pointer', background: isStreaming ? 'linear-gradient(135deg,#ef4444,#dc2626)' : 'linear-gradient(135deg,#3b82f6,#6366f1)', color: 'white' }}>
+              {isStreaming ? '🔴 Stop Camera' : '🎥 Open Camera'}
             </button>
-            <button
-              onClick={() => mediaInputRef.current?.click()}
-              className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-500 font-semibold touch-manipulation"
-            >
-              📸 Send Photo/Video
+            <button onClick={() => mediaInputRef.current?.click()}
+              style={{ padding: '8px 16px', borderRadius: 20, border: '1px solid rgba(251,191,36,.3)', background: 'rgba(251,191,36,.15)', color: '#fbbf24', fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
+              📎 Share File
             </button>
-            <input
-              ref={mediaInputRef}
-              type="file"
-              accept="image/*,video/*"
-              onChange={handleMediaSelect}
-              className="hidden"
-            />
+            <input ref={mediaInputRef} type="file" accept="image/*,video/*" onChange={handleMediaSelect} style={{ display: 'none' }} />
           </div>
         )}
-
+    
         {/* Media Preview */}
         {mediaPreview && (
-          <div className="mt-3 relative">
+          <div style={{ marginTop: 10 }}>
             {mediaFile?.type.startsWith('image/') ? (
-              <img src={mediaPreview} alt="Preview" className="max-w-[90vw] max-h-[60vh] object-contain rounded" />
+              <img src={mediaPreview} alt="Preview" style={{ maxWidth: '90vw', maxHeight: '60vh', objectFit: 'contain', borderRadius: 10 }} />
             ) : (
-              <video src={mediaPreview} className="max-w-[90vw] max-h-[60vh] object-contain rounded" controls autoPlay muted />
+              <video src={mediaPreview} style={{ maxWidth: '90vw', maxHeight: '60vh', objectFit: 'contain', borderRadius: 10 }} controls autoPlay muted />
             )}
-            <div className="flex gap-2 mt-2">
-              <button
-                onClick={handleSendMedia}
-                disabled={uploading}
-                className="flex-1 px-3 py-2 bg-purple-600 text-white rounded text-sm hover:bg-purple-500 disabled:opacity-50 touch-manipulation"
-              >
-                {uploading ? '⏳ Uploading...' : '✅ Send'}
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <button onClick={handleSendMedia} disabled={uploading}
+                style={{ flex: 1, padding: '8px', background: 'linear-gradient(135deg,#3b82f6,#6366f1)', color: 'white', border: 'none', borderRadius: 10, fontSize: 13, cursor: 'pointer', opacity: uploading ? .6 : 1 }}>
+                {uploading ? '⏳ Uploading…' : '✅ Send'}
               </button>
-              <button
-                onClick={() => {
-                  setMediaFile(null);
-                  setMediaPreview('');
-                  if (mediaInputRef.current) mediaInputRef.current.value = '';
-                }}
-                className="px-3 py-2 bg-gray-700 text-white rounded text-sm hover:bg-gray-600 touch-manipulation"
-              >
-                ✕ Cancel
+              <button onClick={() => { setMediaFile(null); setMediaPreview(''); if (mediaInputRef.current) mediaInputRef.current.value = ''; }}
+                style={{ padding: '8px 14px', background: 'rgba(100,116,139,.2)', color: '#94a3b8', border: 'none', borderRadius: 10, fontSize: 13, cursor: 'pointer' }}>
+                ✕
               </button>
             </div>
           </div>
         )}
       </div>
 
-      {/* Error */}
       {error && (
-        <div className="p-3 bg-red-900/30 border border-red-500/50 text-red-300 text-sm">
-          {error}
+        <div style={{ padding: '10px 16px', background: 'rgba(239,68,68,.15)', borderBottom: '1px solid rgba(239,68,68,.3)', color: '#fca5a5', fontSize: 13 }}>
+          ⚠️ {error}
         </div>
       )}
 
-      {/* Main Content Area */}
-      <div className="flex-1 overflow-hidden relative">
-        {/* Floating Comments Layer */}
-        <div className="absolute inset-0 pointer-events-none flex flex-col justify-end p-4">
-          <div className="space-y-2">
+      {/* Main Content */}
+      <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+        {/* Floating comments */}
+        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', padding: 16, zIndex: 5 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {floatingComments.map((comment) => (
-              <div
-                key={comment.displayId}
-                className="animate-float text-sm bg-gray-800/80 border border-purple-500/30 rounded p-2 text-gray-200 max-w-[90vw]"
-                style={{
-                  animation: `floatUp 10s linear forwards`,
-                }}
-              >
-                <span className="text-purple-300 font-semibold">{comment.author.name}: </span>
+              <div key={comment.displayId}
+                style={{ fontSize: 13, background: 'rgba(15,23,42,.85)', border: '1px solid rgba(251,191,36,.25)', borderRadius: 10, padding: '8px 12px', maxWidth: '90vw', animation: 'floatUp 10s linear forwards', color: '#e2e8f0' }}>
+                <span style={{ color: '#fbbf24', fontWeight: 700 }}>{comment.author.name}: </span>
                 {comment.mediaUrl ? (
                   comment.mediaType?.startsWith('image/') ? (
-                    <img src={resolveMediaUrl(comment.mediaUrl)} alt="media" className="inline-block ml-2 max-w-[60vw] max-h-[40vh] object-contain rounded" />
+                    <img src={resolveMediaUrl(comment.mediaUrl)} alt="media" style={{ display: 'inline-block', marginLeft: 8, maxWidth: '60vw', maxHeight: '40vh', objectFit: 'contain', borderRadius: 6 }} />
                   ) : (
-                    <video src={resolveMediaUrl(comment.mediaUrl)} className="inline-block ml-2 max-w-[60vw] max-h-[40vh] object-contain rounded" controls autoPlay muted />
+                    <video src={resolveMediaUrl(comment.mediaUrl)} style={{ display: 'inline-block', marginLeft: 8, maxWidth: '60vw', maxHeight: '40vh', objectFit: 'contain', borderRadius: 6 }} controls autoPlay muted />
                   )
                 ) : (
-                  <span className="ml-1">{comment.content}</span>
+                  <span style={{ marginLeft: 4 }}>{comment.content}</span>
                 )}
               </div>
             ))}
@@ -628,91 +590,81 @@ const RoomView: React.FC<RoomViewProps> = ({ roomId, onClose, currentUserId }) =
         </div>
 
         {/* Comments List */}
-        <div className="h-full overflow-y-auto p-4 space-y-2 pb-28" style={{ paddingBottom: '4.5rem' }}>
-          <div className="mb-3 bg-black/30 border border-purple-500/30 rounded p-3">
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-sm text-gray-200 font-semibold">🎥 Live Stream</div>
+        <div style={{ height: '100%', overflowY: 'auto', padding: '12px 16px 80px' }}>
+          {/* Video section */}
+          <div style={{ marginBottom: 12, background: 'rgba(15,23,42,.6)', border: '1px solid rgba(251,191,36,.2)', borderRadius: 14, padding: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: '#fbbf24' }}>📹 Live Cameras</span>
               {isStreaming ? (
-                <span className="text-xs text-red-300 font-semibold">LIVE</span>
+                <span style={{ fontSize: 11, color: '#ef4444', fontWeight: 700, background: 'rgba(239,68,68,.15)', padding: '2px 8px', borderRadius: 20, border: '1px solid rgba(239,68,68,.3)' }}>● LIVE</span>
               ) : hostIsLive ? (
-                <span className="text-xs text-green-300 font-semibold">{remoteStreamActive ? 'WATCHING' : 'CONNECTING'}</span>
+                <span style={{ fontSize: 11, color: '#10b981', fontWeight: 700 }}>{remoteStreamActive ? 'WATCHING' : 'CONNECTING…'}</span>
               ) : (
-                <span className="text-xs text-gray-400">OFFLINE</span>
+                <span style={{ fontSize: 11, color: '#475569' }}>No cameras active</span>
               )}
             </div>
-
             {isStreaming ? (
               <>
-                <div className="text-xs text-gray-400 mb-2">You are live. Everyone in the room can watch.</div>
-                <video ref={localVideoRef} autoPlay muted playsInline className="w-full max-h-[45vh] object-cover rounded bg-black" />
+                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>You are live — everyone in the room can watch</div>
+                <video ref={localVideoRef} autoPlay muted playsInline style={{ width: '100%', maxHeight: '45vh', objectFit: 'cover', borderRadius: 10, background: '#000' }} />
               </>
             ) : hostIsLive ? (
               <>
-                <div className="text-xs text-gray-400 mb-2">{room?.creator?.name || 'Host'} is live.</div>
-                <video ref={remoteVideoRef} autoPlay playsInline className="w-full max-h-[45vh] object-cover rounded bg-black" />
+                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>Someone is live</div>
+                <video ref={remoteVideoRef} autoPlay playsInline style={{ width: '100%', maxHeight: '45vh', objectFit: 'cover', borderRadius: 10, background: '#000' }} />
               </>
             ) : (
-              <div className="text-gray-400 text-sm">No one is streaming right now.</div>
+              <div style={{ color: '#475569', fontSize: 13, textAlign: 'center', padding: '20px 0' }}>
+                🎥 Open your camera to start discussing with others
+              </div>
             )}
           </div>
 
+          {/* Chat messages */}
           {comments.length === 0 ? (
-            <div className="text-gray-400 text-center mt-8">No comments yet. Start commenting!</div>
+            <div style={{ color: '#475569', textAlign: 'center', padding: '24px 0', fontSize: 13 }}>No messages yet — say hello!</div>
           ) : (
             comments.map((comment) => (
-              <div key={comment._id} className="text-sm bg-gray-800/30 border border-purple-500/20 rounded p-2">
-                <div className="text-purple-300 font-semibold text-xs">{comment.author.name}</div>
+              <div key={comment._id} style={{ marginBottom: 8, background: 'rgba(30,41,59,.6)', border: '1px solid rgba(96,165,250,.12)', borderRadius: 10, padding: '10px 12px' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa', marginBottom: 4 }}>{comment.author.name}</div>
                 {comment.mediaUrl ? (
-                  <div className="mt-1">
+                  <div style={{ marginTop: 4 }}>
                     {comment.mediaType?.startsWith('image/') ? (
-                      <img src={resolveMediaUrl(comment.mediaUrl)} alt="media" className="max-w-[90vw] max-h-[60vh] object-contain rounded mt-1" />
+                      <img src={resolveMediaUrl(comment.mediaUrl)} alt="media" style={{ maxWidth: '90vw', maxHeight: '60vh', objectFit: 'contain', borderRadius: 8 }} />
                     ) : (
-                      <video src={resolveMediaUrl(comment.mediaUrl)} className="max-w-[90vw] max-h-[60vh] object-contain rounded mt-1" controls autoPlay muted />
+                      <video src={resolveMediaUrl(comment.mediaUrl)} style={{ maxWidth: '90vw', maxHeight: '60vh', objectFit: 'contain', borderRadius: 8 }} controls autoPlay muted />
                     )}
-                    {comment.content && <div className="text-gray-200 mt-2">{comment.content}</div>}
+                    {comment.content && <div style={{ color: '#cbd5e1', marginTop: 6, fontSize: 13 }}>{comment.content}</div>}
                   </div>
                 ) : (
-                  <div className="text-gray-200">{comment.content}</div>
+                  <div style={{ color: '#cbd5e1', fontSize: 14 }}>{comment.content}</div>
                 )}
-                <div className="text-xs text-gray-500 mt-1">
-                  {new Date(comment.createdAt).toLocaleTimeString()}
-                </div>
+                <div style={{ fontSize: 11, color: '#334155', marginTop: 4 }}>{new Date(comment.createdAt).toLocaleTimeString()}</div>
               </div>
             ))
           )}
         </div>
       </div>
 
-      {/* Comment Input */}
-      <form onSubmit={handlePostComment} className="sticky bottom-0 p-3 border-t border-purple-500/30 flex gap-2 bg-gray-900/95">
+      {/* Message Input */}
+      <form onSubmit={handlePostComment} style={{ padding: '12px 16px', borderTop: '1px solid rgba(251,191,36,.15)', display: 'flex', gap: 10, background: 'rgba(15,23,42,.95)', backdropFilter: 'blur(10px)' }}>
         <input
           value={newComment}
           onChange={(e) => setNewComment(e.target.value)}
-          placeholder="Type a comment…"
-          className="flex-1 p-3 bg-gray-800 text-white border border-purple-500/30 rounded text-sm"
+          placeholder="Type a message…"
+          style={{ flex: 1, padding: '10px 14px', background: 'rgba(30,41,59,.8)', color: '#e2e8f0', border: '1px solid rgba(96,165,250,.25)', borderRadius: 20, fontSize: 14, outline: 'none', fontFamily: 'inherit' }}
         />
-        <button
-          type="submit"
-          disabled={!newComment.trim()}
-          className="px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded text-sm disabled:opacity-50 touch-manipulation"
-        >
+        <button type="submit" disabled={!newComment.trim()}
+          style={{ padding: '10px 20px', background: 'linear-gradient(135deg,#3b82f6,#6366f1)', color: 'white', border: 'none', borderRadius: 20, fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: !newComment.trim() ? .5 : 1 }}>
           Send
         </button>
       </form>
 
       <style>{`
         @keyframes floatUp {
-          0% {
-            opacity: 1;
-            transform: translateY(0);
-          }
-          70% {
-            opacity: 1;
-          }
-          100% {
-            opacity: 0;
-            transform: translateY(-80px);
-          }
+          0% { opacity: 1; transform: translateY(0); }
+          70% { opacity: 1; }
+          100% { opacity: 0; transform: translateY(-80px); }
         }
       `}</style>
     </div>

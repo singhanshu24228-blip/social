@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import path from 'path';
 import Post, { IPost } from '../models/Post.js';
+import Community from '../models/Community.js';
 import User from '../models/User.js';
 import Follower from '../models/Follower.js';
 import { createNotification } from './notificationController.js';
@@ -8,8 +9,7 @@ import { calculateScore } from '../utils/yourVoiceAI.js';
 import fs from 'fs';
 import { uploadsDir, frontendPublicDir } from '../utils/paths.js';
 import { isCloudinaryConfigured, uploadFileToCloudinary } from '../utils/cloudinary.js';
-import crypto from 'crypto';
-import UnlockPayment from '../models/UnlockPayment.js';
+
 import { getBlockedUserIdsForViewer, isEitherUserBlocked } from '../utils/blocking.js';
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -40,7 +40,7 @@ const toAbsoluteAssetUrl = (baseUrl: string, url?: string) => {
 
 export const createPost = async (req: Request, res: Response) => {
   try {
-    const { content, anonymous, isPrivate, isLocked, lockedPrice } = req.body;
+    const { content, anonymous, isPrivate, isLocked, lockedPrice, communityId } = req.body;
     const userId = (req as any).user._id;
     if (debugPosts) {
       console.log('Backend createPost - req.body:', req.body);
@@ -149,9 +149,23 @@ export const createPost = async (req: Request, res: Response) => {
     const isLockedFlag = (isLocked === 'true' || isLocked === true);
     const lockedPriceNum = isLockedFlag && lockedPrice ? Number(lockedPrice) : 0;
     const safeContent = content == null ? '' : String(content);
+    const normalizedCommunityId = String(communityId || '').trim();
+
+    let community: any = null;
+    if (normalizedCommunityId) {
+      community = await Community.findById(normalizedCommunityId).select('_id members name');
+      if (!community) {
+        return res.status(404).json({ message: 'Community not found' });
+      }
+      const isMember = ((community as any).members || []).some((member: any) => String(member) === String(userId));
+      if (!isMember) {
+        return res.status(403).json({ message: 'Join the community before posting' });
+      }
+    }
 
     const post = new Post({
       user: userId,
+      community: community ? community._id : undefined,
       username,
       content: safeContent,
       imageUrl,
@@ -188,6 +202,7 @@ export const createPost = async (req: Request, res: Response) => {
 export const getPosts = async (req: Request, res: Response) => {
   try {
     const currentUserId = (req as any).user?._id;
+    const communityId = String(req.query?.communityId || '').trim();
     let currentUserFollowing: string[] = [];
     let blockedUserIds: string[] = [];
     
@@ -200,8 +215,13 @@ export const getPosts = async (req: Request, res: Response) => {
       blockedUserIds = await getBlockedUserIdsForViewer(String(currentUserId));
     }
     
-    const posts = await Post.find({ isNightPost: { $ne: true } })
+    const filter: any = { isNightPost: { $ne: true } };
+    if (communityId) filter.community = communityId;
+    else filter.community = { $exists: false };
+
+    const posts = await Post.find(filter)
       .populate('user', 'username name _id profilePicture')
+      .populate('community', '_id name profilePicture purpose')
       .populate('comments.user', 'username name profilePicture')
       .sort({ createdAt: -1 })
       .allowDiskUse(true);
@@ -286,6 +306,7 @@ export const getPostById = async (req: Request, res: Response) => {
   try {
     const post = await Post.findById(req.params.id)
       .populate('user', 'username name profilePicture')
+      .populate('community', '_id name profilePicture purpose')
       .populate('comments.user', 'username name profilePicture');
 
     if (!post) {
@@ -459,6 +480,7 @@ export const getPostsByUsername = async (req: Request, res: Response) => {
 
     const posts = await Post.find({ user: user._id })
       .populate('user', 'username name _id profilePicture')
+      .populate('community', '_id name profilePicture purpose')
       .populate('comments.user', 'username name profilePicture')
       .sort({ createdAt: -1 })
       .allowDiskUse(true);
@@ -586,6 +608,7 @@ export const addReaction = async (req: Request, res: Response) => {
     res.status(500).json({ message: 'Server error' });
   }
 };
+
 export const getPrivateSongs = async (req: Request, res: Response) => {
   try {
     const publicDir = frontendPublicDir;
@@ -611,140 +634,3 @@ export const getPrivateSongs = async (req: Request, res: Response) => {
     res.status(500).json({ message: 'Failed to fetch songs' });
   }
 };
-
-// Create Razorpay order for locked post
-// NOTE: payments should route to UPI ID 6205915327@sbi (changed from @ibl)
-export const createUnlockOrder = async (req: Request, res: Response) => {
-  try {
-    const postId = req.params.id;
-    const userId = (req as any).user._id;
-
-    const post = await Post.findById(postId);
-    if (!post) {
-      return res.status(404).json({ message: 'Post not found' });
-    }
-
-    if (!post.isLocked || !post.lockedPrice) {
-      return res.status(400).json({ message: 'This post is not locked' });
-    }
-
-    // Check if user already unlocked
-    if (post.unlockedBy?.some(id => id.toString() === userId.toString())) {
-      return res.status(400).json({ message: 'You have already unlocked this post' });
-    }
-
-    // Initialize Razorpay (CJS package; use dynamic import so it works in ESM)
-    const { default: Razorpay } = await import('razorpay');
-    const razorpay = new (Razorpay as any)({
-      key_id: process.env.RAZORPAY_KEY_ID,
-      key_secret: process.env.RAZORPAY_KEY_SECRET,
-    });
-
-    // Create order
-    // Razorpay requires `receipt` length <= 40 chars. Use a short deterministic hash; keep full IDs in `notes`.
-    const receipt = `unlock_${crypto
-      .createHash('sha1')
-      .update(`${postId}:${userId}`)
-      .digest('hex')
-      .slice(0, 32)}`;
-
-    const order = await razorpay.orders.create({
-      amount: post.lockedPrice * 100, // Convert to paise
-      currency: 'INR',
-      receipt,
-      notes: {
-        postId: postId,
-        userId: userId.toString(),
-      },
-    });
-
-    res.json({
-      orderId: order.id,
-      amount: post.lockedPrice,
-      key: process.env.RAZORPAY_KEY_ID,
-      upiVpa: process.env.UPI_VPA || '6205915327@sbi',
-      payeeName: process.env.UPI_PAYEE_NAME || 'Locked Post',
-    });
-  } catch (error) {
-    console.error('Error creating order:', error);
-    res.status(500).json({ message: 'Failed to create payment order' });
-  }
-};
-
-// Verify payment and unlock post
-export const verifyUnlockPayment = async (req: Request, res: Response) => {
-  try {
-    const postId = req.params.id;
-    const userId = (req as any).user._id;
-    const { orderId, paymentId, signature } = req.body;
-    const secret = process.env.RAZORPAY_KEY_SECRET;
-    if (!secret) {
-      return res.status(500).json({ message: 'Payment verification is not configured' });
-    }
-
-    // Verify signature
-    const expectedSignature = crypto
-      .createHmac('sha256', secret)
-      .update(`${orderId}|${paymentId}`)
-      .digest('hex');
-
-    if (expectedSignature !== signature) {
-      return res.status(400).json({ message: 'Payment verification failed' });
-    }
-
-    // Ensure we don't double-credit earnings for repeated verify calls.
-    const postForPayment = await Post.findById(postId).select('user lockedPrice isLocked unlockedBy').lean();
-    if (!postForPayment) {
-      return res.status(404).json({ message: 'Post not found' });
-    }
-    if (!postForPayment.isLocked || !postForPayment.lockedPrice) {
-      return res.status(400).json({ message: 'This post is not locked' });
-    }
-
-    const amount = Number(postForPayment.lockedPrice || 0);
-    const payeeUserId = postForPayment.user as any;
-
-    // Create payment record (idempotent via unique orderId/paymentId).
-    let didCreatePayment = false;
-    try {
-      await UnlockPayment.create({
-        postId,
-        payeeUserId,
-        payerUserId: userId,
-        orderId: String(orderId || ''),
-        paymentId: String(paymentId || ''),
-        amount,
-      });
-      didCreatePayment = true;
-    } catch (e: any) {
-      // Duplicate key => already recorded; treat as idempotent success.
-      if (e?.code !== 11000) {
-        throw e;
-      }
-    }
-
-    if (didCreatePayment) {
-      // Credit earnings to post owner
-      await User.findByIdAndUpdate(payeeUserId, { $inc: { totalEarnings: amount } }).lean();
-    }
-
-    // Update post to mark user as unlocked
-    const post = await Post.findByIdAndUpdate(
-      postId,
-      {
-        $addToSet: { unlockedBy: userId },
-      },
-      { new: true }
-    ).populate('user', 'username name profilePicture');
-
-    res.json({
-      ok: true,
-      message: 'Post unlocked successfully',
-      post,
-    });
-  } catch (error) {
-    console.error('Error verifying payment:', error);
-    res.status(500).json({ message: 'Failed to verify payment' });
-  }
-};
-

@@ -4,7 +4,8 @@ import Signup from './pages/Signup';
 import Home from './pages/Home';
 import Message from './pages/Message';
 import Profile from './pages/Profile';
-import Payment from './pages/Payment';
+import SetDetail from './pages/SetDetail';
+
 import Admin from './pages/Admin';
 import TermsConditions from './pages/TermsConditions';
 import PrivacyPolicy from './pages/PrivacyPolicy';
@@ -20,10 +21,9 @@ export default function App() {
       user = null;
     }
   }
-  const isPaymentPage = path === '/message/payment';
   const isTermsPage = path === '/termandcondition';
   const isPrivacyPage = path === '/PrivacyPolicy';
-  const isMessagePage = path.startsWith('/message') && !isPaymentPage;
+  const isMessagePage = path.startsWith('/message');
   const messageSubPath = isMessagePage && path.startsWith('/message/') ? path.split('/message/')[1] : null;
   const groupName =
     isMessagePage &&
@@ -37,8 +37,9 @@ export default function App() {
       : null;
   const isProfilePage = path.startsWith('/profile/');
   const userId = isProfilePage ? path.split('/profile/')[1] : null;
+  const isSetDetailPage = path === '/set-detail';
   const isAdminPage = path === '/admin';
-  const isAuthPage = !isAdminPage && !isProfilePage && !isPaymentPage && !isMessagePage && !isTermsPage && !isPrivacyPage;
+  const isAuthPage = !isAdminPage && !isProfilePage && !isMessagePage && !isSetDetailPage && !isTermsPage && !isPrivacyPage;
   const isPublicPage = isTermsPage || isPrivacyPage;
   const isAuthenticated = Boolean(user);
   const authenticatedHomePath = user?.isAdmin ? '/admin' : '/message';
@@ -62,19 +63,20 @@ export default function App() {
   if (isAuthPage) {
     return (
       <div className="relative h-screen overflow-hidden">
-        <div className="absolute left-1/2 top-4 z-10 flex w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 gap-2 rounded-2xl bg-white/10 p-2 backdrop-blur-md">
+        {/* Gradient header - mobile friendly */}
+        <div className="absolute left-1/2 top-4 sm:top-6 z-10 flex w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 gap-1.5 sm:gap-2 rounded-xl sm:rounded-2xl bg-white/20 p-1.5 backdrop-blur-xl border border-white/30 shadow-lg">
           <button
             onClick={() => setIsLogin(false)}
-            className={`flex-1 py-2 px-4 rounded-xl font-semibold transition ${
-              !isLogin ? 'bg-blue-600 text-white' : 'bg-white/70 text-neutral-900'
+            className={`flex-1 py-2.5 sm:py-2.5 px-3 sm:px-4 rounded-lg sm:rounded-xl font-semibold text-sm transition-all duration-200 touch-manipulation active:scale-95 ${
+              !isLogin ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-md' : 'bg-white/40 text-slate-700 active:bg-white/60'
             }`}
           >
             Sign Up
           </button>
           <button
             onClick={() => setIsLogin(true)}
-            className={`flex-1 py-2 px-4 rounded-xl font-semibold transition ${
-              isLogin ? 'bg-blue-600 text-white' : 'bg-white/70 text-neutral-900'
+            className={`flex-1 py-2.5 sm:py-2.5 px-3 sm:px-4 rounded-lg sm:rounded-xl font-semibold text-sm transition-all duration-200 touch-manipulation active:scale-95 ${
+              isLogin ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-md' : 'bg-white/40 text-slate-700 active:bg-white/60'
             }`}
           >
             Login
@@ -86,19 +88,23 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-neutral-900 text-neutral-900 dark:text-neutral-50">
-      <div className={isAdminPage ? 'w-full' : "max-w-md md:max-w-2xl lg:max-w-4xl mx-auto p-4 bg-white dark:bg-neutral-800 rounded-lg shadow-lg"}>
-        {!isAdminPage && !isMessagePage && <h1 className="text-blue-500 text-2xl font-bold mb-4">Sociovio</h1>}
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-purple-50 dark:from-neutral-900 dark:via-neutral-800 dark:to-neutral-900">
+      <div className={isAdminPage ? 'w-full' : "max-w-lg mx-auto p-4 pt-6"}>
+        {!isAdminPage && !isMessagePage && (
+          <div className="text-center mb-6">
+            <h1 className="text-3xl font-extrabold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">Sociovio</h1>
+          </div>
+        )}
         {isAdminPage ? (
           <Admin />
-        ) : isProfilePage ? (
+        ) : isProfilePage && userId ? (
           <Profile userId={userId} />
-        ) : isPaymentPage ? (
-          <Payment />
         ) : isTermsPage ? (
           <TermsConditions />
         ) : isPrivacyPage ? (
           <PrivacyPolicy />
+        ) : isSetDetailPage ? (
+          <SetDetail />
         ) : isMessagePage ? (
           <Message groupName={groupName} />
         ) : (

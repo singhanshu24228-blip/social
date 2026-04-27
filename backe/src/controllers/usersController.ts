@@ -17,9 +17,6 @@ export const updateLocation = async (req: AuthRequest, res: Response) => {
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    const isAvailable = await (User as any).isUsernameAvailable(user.username, coords, 2000, userId);
-    if (!isAvailable) return res.status(409).json({ message: 'Username conflict within 2 KM at this location' });
-
     user.location = { type: 'Point', coordinates: coords } as any;
     await user.save();
     try {
@@ -169,10 +166,9 @@ export const getRandomUsers = async (req: Request, res: Response) => {
 
 export const checkUsername = async (req: Request, res: Response) => {
   try {
-    const { username, lat, lng } = req.query;
-    if (!username || !lat || !lng) return res.status(400).json({ message: 'Missing params' });
-    const coords: [number, number] = [parseFloat(lng as string), parseFloat(lat as string)];
-    const available = await (User as any).isUsernameAvailable(username as string, coords, 2000);
+    const { username } = req.query;
+    if (!username) return res.status(400).json({ message: 'Missing username' });
+    const available = await (User as any).isUsernameAvailable(username as string);
     res.json({ available });
   } catch (err) {
     console.error(err);
@@ -204,7 +200,7 @@ export const getUserProfile = async (req: AuthRequest, res: Response) => {
     if (!id) return res.status(400).json({ message: 'Missing user id' });
 
     const user = await User.findById(id)
-      .select('_id username name profilePicture about isOnline createdAt totalEarnings withdrawnTotal')
+      .select('_id username name profilePicture about professionType professionDetail additionalDetails isOnline createdAt totalEarnings withdrawnTotal')
       .lean();
     if (!user) return res.status(404).json({ message: 'User not found' });
 
@@ -212,7 +208,11 @@ export const getUserProfile = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    res.json({ user });
+    // Get followers/following counts
+    const followersCount = await Follower.countDocuments({ followingId: id });
+    const followingCount = await Follower.countDocuments({ followerId: id });
+
+    res.json({ user: { ...user, followersCount, followingCount } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
@@ -430,22 +430,41 @@ export const updateProfilePicture = async (req: AuthRequest, res: Response) => {
 export const updateBio = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user._id.toString();
-    const aboutRaw = (req.body as any)?.about;
-    if (typeof aboutRaw !== 'string') {
-      return res.status(400).json({ message: 'Bio is required' });
+    const { professionType, professionDetail, additionalDetails } = req.body;
+
+    if (professionType && !['Student', 'Working Professional'].includes(professionType)) {
+      return res.status(400).json({ message: 'Invalid profession type' });
     }
 
-    const about = aboutRaw.trim();
-    if (about.length > 280) {
-      return res.status(400).json({ message: 'Bio must be 280 characters or less' });
+    if (professionDetail && typeof professionDetail !== 'string') {
+      return res.status(400).json({ message: 'Detail must be a string' });
+    }
+    
+    const detailText = professionDetail ? professionDetail.trim() : '';
+    if (detailText.length > 280) {
+      return res.status(400).json({ message: 'Detail must be 280 characters or less' });
+    }
+
+    const updateData: any = {};
+    if (professionType !== undefined) updateData.professionType = professionType;
+    if (professionDetail !== undefined) updateData.professionDetail = detailText;
+    
+    if (additionalDetails !== undefined) {
+      if (!Array.isArray(additionalDetails)) {
+        return res.status(400).json({ message: 'additionalDetails must be an array' });
+      }
+      updateData.additionalDetails = additionalDetails
+        .map(d => String(d).trim())
+        .filter(d => d.length > 0)
+        .slice(0, 10);
     }
 
     const user = await User.findByIdAndUpdate(
       userId,
-      { about },
+      updateData,
       { new: true }
     )
-      .select('_id username name email profilePicture about isOnline createdAt')
+      .select('_id username name email profilePicture about professionType professionDetail additionalDetails isOnline createdAt')
       .lean();
 
     if (!user) {

@@ -1,28 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 
-interface Withdrawal {
+interface Member {
   _id: string;
   username: string;
-  amount: number;
-  totalMoney: number;
-  status: 'pending' | 'approved' | 'rejected';
-  accountInfo: {
-    accountHolderName?: string;
-    bankName?: string;
-    accountNumber?: string;
-    ifsc?: string;
-    upiId?: string;
-  };
+  name: string;
+  email: string;
+  isInNightMode?: boolean;
+  isOnline?: boolean;
   createdAt: string;
-  updatedAt: string;
 }
 
+type AdminTab = 'members' | 'study-mode' | 'admins';
+
 export default function Admin() {
-  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
+  const [tab, setTab] = useState<AdminTab>('members');
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
-  const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
+  const [msgType, setMsgType] = useState<'info' | 'success' | 'error'>('info');
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [newAdminPassword, setNewAdminPassword] = useState('');
   const [creatingAdmin, setCreatingAdmin] = useState(false);
@@ -30,44 +25,49 @@ export default function Admin() {
   const [deleteAdminPassword, setDeleteAdminPassword] = useState('');
   const [deletingAdmin, setDeletingAdmin] = useState(false);
 
-  useEffect(() => {
-    fetchWithdrawals();
-  }, [filter]);
+  // Members
+  const [members, setMembers] = useState<Member[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [memberSearch, setMemberSearch] = useState('');
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [studyModeUpdating, setStudyModeUpdating] = useState<string | null>(null);
 
-  const fetchWithdrawals = async () => {
-    try {
-      setLoading(true);
-      setMsg('');
-      const params = filter === 'all' ? {} : { status: filter };
-      const res = await api.get('/admin/withdrawals', { params });
-      setWithdrawals(res.data.withdrawals || []);
-    } catch (err: any) {
-      setMsg(err?.response?.data?.message || err?.message || 'Failed to fetch withdrawals');
-    } finally {
-      setLoading(false);
-    }
+  const showMsg = (text: string, type: 'info' | 'success' | 'error' = 'info') => {
+    setMsg(text); setMsgType(type);
+    setTimeout(() => setMsg(''), 5000);
   };
 
-  const handleApprove = async (id: string) => {
+  useEffect(() => { if (tab === 'members' || tab === 'study-mode') fetchMembers(); }, [tab, memberSearch]);
+
+  const fetchMembers = async () => {
     try {
-      const res = await api.post(`/admin/withdrawals/${id}/approve`);
-      setMsg(res.data.message);
-      await fetchWithdrawals();
+      setMembersLoading(true);
+      const res = await api.get('/admin/users', { params: { search: memberSearch || undefined, limit: 100 } });
+      setMembers(res.data.users || []);
     } catch (err: any) {
-      setMsg(err?.response?.data?.message || 'Failed to approve');
-    }
+      showMsg(err?.response?.data?.message || 'Failed to fetch members', 'error');
+    } finally { setMembersLoading(false); }
   };
 
-  const handleReject = async (id: string) => {
+  const handleRemoveMember = async (member: Member) => {
+    if (!window.confirm(`⚠️ Remove @${member.username} from the platform? This will delete their account and all posts. This cannot be undone.`)) return;
     try {
-      const reason = prompt('Enter rejection reason:');
-      if (!reason) return;
-      const res = await api.post(`/admin/withdrawals/${id}/reject`, { reason });
-      setMsg(res.data.message);
-      await fetchWithdrawals();
-    } catch (err: any) {
-      setMsg(err?.response?.data?.message || 'Failed to reject');
-    }
+      setRemovingId(member._id);
+      const res = await api.delete(`/admin/users/${member._id}`);
+      showMsg(res.data.message, 'success');
+      setMembers(prev => prev.filter(m => m._id !== member._id));
+    } catch (err: any) { showMsg(err?.response?.data?.message || 'Failed to remove member', 'error'); }
+    finally { setRemovingId(null); }
+  };
+
+  const handleStudyModeToggle = async (member: Member, approve: boolean) => {
+    try {
+      setStudyModeUpdating(member._id);
+      const res = await api.post(`/admin/users/${member._id}/study-mode`, { approve });
+      showMsg(res.data.message, 'success');
+      setMembers(prev => prev.map(m => m._id === member._id ? { ...m, isInNightMode: approve } : m));
+    } catch (err: any) { showMsg(err?.response?.data?.message || 'Failed to update', 'error'); }
+    finally { setStudyModeUpdating(null); }
   };
 
   const handleLogout = () => {
@@ -79,224 +79,185 @@ export default function Admin() {
   const handleCreateAdmin = async () => {
     try {
       setCreatingAdmin(true);
-      setMsg('');
-      const res = await api.post('/admin/admins', {
-        email: newAdminEmail.trim(),
-        password: newAdminPassword,
-      });
+      const res = await api.post('/admin/admins', { email: newAdminEmail.trim(), password: newAdminPassword });
       const created = res.data?.admin;
-      setMsg(created?.email ? `Admin created: ${created.email} (@${created.username})` : 'Admin created');
-      setNewAdminEmail('');
-      setNewAdminPassword('');
-    } catch (err: any) {
-      setMsg(err?.response?.data?.message || err?.message || 'Failed to create admin');
-    } finally {
-      setCreatingAdmin(false);
-    }
+      showMsg(created?.email ? `Admin created: ${created.email} (@${created.username})` : 'Admin created', 'success');
+      setNewAdminEmail(''); setNewAdminPassword('');
+    } catch (err: any) { showMsg(err?.response?.data?.message || 'Failed to create admin', 'error'); }
+    finally { setCreatingAdmin(false); }
   };
 
   const handleDeleteAdmin = async () => {
     if (!window.confirm(`Delete admin ${deleteAdminEmail.trim()}? This cannot be undone.`)) return;
     try {
       setDeletingAdmin(true);
-      setMsg('');
-      const res = await api.post('/admin/admins/delete', {
-        email: deleteAdminEmail.trim(),
-        password: deleteAdminPassword,
-      });
-      setMsg(res.data?.message || 'Admin deleted');
-      setDeleteAdminEmail('');
-      setDeleteAdminPassword('');
-    } catch (err: any) {
-      setMsg(err?.response?.data?.message || err?.message || 'Failed to delete admin');
-    } finally {
-      setDeletingAdmin(false);
-    }
+      const res = await api.post('/admin/admins/delete', { email: deleteAdminEmail.trim(), password: deleteAdminPassword });
+      showMsg(res.data?.message || 'Admin deleted', 'success');
+      setDeleteAdminEmail(''); setDeleteAdminPassword('');
+    } catch (err: any) { showMsg(err?.response?.data?.message || 'Failed to delete admin', 'error'); }
+    finally { setDeletingAdmin(false); }
+  };
+
+  const tabs: { id: AdminTab; label: string; icon: string }[] = [
+    { id: 'members', label: 'Members', icon: '👥' },
+    { id: 'study-mode', label: 'Study Mode', icon: '📚' },
+    { id: 'admins', label: 'Admins', icon: '🔐' },
+  ];
+
+  const S = {
+    page: { minHeight: '100vh', background: 'linear-gradient(160deg,#0f172a,#1e293b)', color: '#e2e8f0', fontFamily: '"Inter",system-ui,sans-serif', padding: '0 0 60px' } as React.CSSProperties,
+    header: { padding: '18px 24px', borderBottom: '1px solid rgba(251,191,36,.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(15,23,42,.8)', backdropFilter: 'blur(10px)', position: 'sticky', top: 0, zIndex: 10 } as React.CSSProperties,
+    card: { background: 'rgba(30,41,59,.7)', border: '1px solid rgba(96,165,250,.15)', borderRadius: 14, padding: 20, marginBottom: 16 } as React.CSSProperties,
+    input: { width: '100%', padding: '10px 12px', background: 'rgba(15,23,42,.6)', color: '#e2e8f0', border: '1px solid rgba(96,165,250,.25)', borderRadius: 10, fontSize: 14, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' } as React.CSSProperties,
+    btn: (color: string) => ({ padding: '8px 16px', borderRadius: 8, border: 'none', fontWeight: 700, fontSize: 13, cursor: 'pointer', background: color, color: 'white' } as React.CSSProperties),
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 p-8">
-      <div className="max-w-6xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-800">Admin Panel</h1>
-          <button
-            onClick={handleLogout}
-            className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-          >
-            Logout
-          </button>
+    <div style={S.page}>
+      <div style={S.header}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 24 }}>🎓</span>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 18, fontWeight: 800, background: 'linear-gradient(90deg,#fbbf24,#60a5fa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Campus Admin Panel</h1>
+            <p style={{ margin: 0, fontSize: 11, color: '#475569' }}>College Social Platform Management</p>
+          </div>
         </div>
+        <button onClick={handleLogout} style={S.btn('rgba(239,68,68,.8)')}>Logout</button>
+      </div>
 
+      {/* Tab Nav */}
+      <div style={{ display: 'flex', gap: 4, padding: '14px 24px 0', borderBottom: '1px solid rgba(96,165,250,.1)' }}>
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            style={{ padding: '8px 16px', borderRadius: '10px 10px 0 0', border: 'none', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+              background: tab === t.id ? 'rgba(251,191,36,.15)' : 'transparent',
+              color: tab === t.id ? '#fbbf24' : '#64748b',
+              borderBottom: tab === t.id ? '2px solid #fbbf24' : '2px solid transparent' }}>
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ maxWidth: 900, margin: '24px auto', padding: '0 16px' }}>
         {msg && (
-          <div className="mb-4 p-4 bg-blue-100 border border-blue-400 text-blue-700 rounded">
+          <div style={{ marginBottom: 16, padding: '12px 16px', borderRadius: 10, fontSize: 13,
+            background: msgType === 'success' ? 'rgba(16,185,129,.15)' : msgType === 'error' ? 'rgba(239,68,68,.15)' : 'rgba(96,165,250,.15)',
+            border: `1px solid ${msgType === 'success' ? 'rgba(16,185,129,.4)' : msgType === 'error' ? 'rgba(239,68,68,.4)' : 'rgba(96,165,250,.4)'}`,
+            color: msgType === 'success' ? '#6ee7b7' : msgType === 'error' ? '#fca5a5' : '#93c5fd' }}>
             {msg}
           </div>
         )}
 
-        <div className="mb-6 bg-white rounded-lg shadow border border-gray-200 p-4">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div>
-              <div className="text-lg font-semibold text-gray-800">Create Admin</div>
-              <div className="text-sm text-gray-500">Create a new admin login (email + password)</div>
-            </div>
-            <div className="flex gap-2 flex-wrap items-center">
+        {/* ── MEMBERS TAB ── */}
+        {tab === 'members' && (
+          <div>
+            <div style={{ marginBottom: 16, display: 'flex', gap: 10, alignItems: 'center' }}>
               <input
-                value={newAdminEmail}
-                onChange={(e) => setNewAdminEmail(e.target.value)}
-                placeholder="admin email"
-                className="px-3 py-2 border rounded text-sm w-64"
-                type="email"
-                autoComplete="off"
+                value={memberSearch}
+                onChange={e => setMemberSearch(e.target.value)}
+                placeholder="Search by name, username or email…"
+                style={{ ...S.input, flex: 1 }}
               />
-              <input
-                value={newAdminPassword}
-                onChange={(e) => setNewAdminPassword(e.target.value)}
-                placeholder="password"
-                className="px-3 py-2 border rounded text-sm w-56"
-                type="password"
-                autoComplete="new-password"
-              />
-              <button
-                onClick={handleCreateAdmin}
-                disabled={creatingAdmin || !newAdminEmail.trim() || !newAdminPassword}
-                className="px-4 py-2 bg-black text-white rounded hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {creatingAdmin ? 'Creating...' : 'Create'}
-              </button>
+              <button onClick={fetchMembers} style={S.btn('rgba(96,165,250,.3)')}>🔍</button>
             </div>
-          </div>
-        </div>
-
-        <div className="mb-6 bg-white rounded-lg shadow border border-gray-200 p-4">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div>
-              <div className="text-lg font-semibold text-gray-800">Delete Admin</div>
-              <div className="text-sm text-gray-500">Delete an admin by verifying that admin's email + password</div>
-            </div>
-            <div className="flex gap-2 flex-wrap items-center">
-              <input
-                value={deleteAdminEmail}
-                onChange={(e) => setDeleteAdminEmail(e.target.value)}
-                placeholder="admin email"
-                className="px-3 py-2 border rounded text-sm w-64"
-                type="email"
-                autoComplete="off"
-              />
-              <input
-                value={deleteAdminPassword}
-                onChange={(e) => setDeleteAdminPassword(e.target.value)}
-                placeholder="admin password"
-                className="px-3 py-2 border rounded text-sm w-56"
-                type="password"
-                autoComplete="off"
-              />
-              <button
-                onClick={handleDeleteAdmin}
-                disabled={deletingAdmin || !deleteAdminEmail.trim() || !deleteAdminPassword}
-                className="px-4 py-2 bg-red-700 text-white rounded hover:bg-red-800 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {deletingAdmin ? 'Deleting...' : 'Delete'}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="mb-6 flex gap-2">
-          {(['all', 'pending', 'approved', 'rejected'] as const).map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`px-4 py-2 rounded capitalize ${
-                filter === f
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-              }`}
-            >
-              {f}
-            </button>
-          ))}
-        </div>
-
-        {loading ? (
-          <div className="text-center py-8">Loading...</div>
-        ) : withdrawals.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">No withdrawal requests found</div>
-        ) : (
-          <div className="overflow-x-auto bg-white rounded-lg shadow">
-            <table className="w-full">
-              <thead className="bg-gray-200">
-                <tr>
-                  <th className="px-6 py-3 text-left text-sm font-semibold">Username</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold">Amount</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold">Status</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold">Account Info</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold">Date</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {withdrawals.map((w) => (
-                  <tr key={w._id} className="border-b hover:bg-gray-50">
-                    <td className="px-6 py-3 text-black font-medium">{w.username}</td>
-                    <td className="px-6 py-3 font-semibold text-black">₹{w.amount}</td>
-                    <td className="px-6 py-3">
-                      <span
-                        className={`px-3 py-1 rounded text-sm font-medium ${
-                          w.status === 'pending'
-                            ? 'bg-yellow-100 text-yellow-800'
-                            : w.status === 'approved'
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-red-100 text-red-800'
-                        }`}
-                      >
-                        {w.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-3 text-sm">
-                      <div className="space-y-1">
-                        <p className="font-medium text-black">{w.accountInfo.accountHolderName}</p>
-                        {w.accountInfo.bankName && (
-                          <p className="text-gray-700"><span className="font-medium">Bank:</span> {w.accountInfo.bankName}</p>
-                        )}
-                        {w.accountInfo.accountNumber && (
-                          <p className="text-gray-700"><span className="font-medium">Account:</span> {w.accountInfo.accountNumber}</p>
-                        )}
-                        {w.accountInfo.ifsc && (
-                          <p className="text-gray-700"><span className="font-medium">IFSC:</span> {w.accountInfo.ifsc}</p>
-                        )}
-                        {w.accountInfo.upiId && (
-                          <p className="text-gray-700"><span className="font-medium">UPI:</span> {w.accountInfo.upiId}</p>
-                        )}
+            {membersLoading ? (
+              <div style={{ textAlign: 'center', padding: 40, color: '#475569' }}>Loading members…</div>
+            ) : members.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 40, color: '#475569' }}>No members found</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {members.map(m => (
+                  <div key={m._id} style={{ ...S.card, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'linear-gradient(135deg,#3b82f6,#8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 18, color: 'white', flexShrink: 0 }}>
+                        {m.name?.[0]?.toUpperCase() || '?'}
                       </div>
-                    </td>
-                    <td className="px-6 py-3 text-sm">
-                      {new Date(w.createdAt).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-3">
-                      {w.status === 'pending' && (
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => handleApprove(w._id)}
-                            className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
-                          >
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => handleReject(w._id)}
-                            className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
-                          >
-                            Reject
-                          </button>
-                        </div>
-                      )}
-                      {w.status !== 'pending' && (
-                        <span className="text-gray-500 text-sm">{w.status.charAt(0).toUpperCase() + w.status.slice(1)}</span>
-                      )}
-                    </td>
-                  </tr>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 14 }}>{m.name}</div>
+                        <div style={{ fontSize: 12, color: '#60a5fa' }}>@{m.username}</div>
+                        <div style={{ fontSize: 11, color: '#475569' }}>{m.email}</div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 20, background: m.isInNightMode ? 'rgba(251,191,36,.2)' : 'rgba(100,116,139,.15)', color: m.isInNightMode ? '#fbbf24' : '#64748b', border: `1px solid ${m.isInNightMode ? 'rgba(251,191,36,.4)' : 'rgba(100,116,139,.3)'}` }}>
+                        {m.isInNightMode ? '📚 In Study Mode' : 'Not in Study Mode'}
+                      </span>
+                      <button
+                        onClick={() => handleStudyModeToggle(m, !m.isInNightMode)}
+                        disabled={studyModeUpdating === m._id}
+                        style={S.btn(m.isInNightMode ? 'rgba(100,116,139,.4)' : 'linear-gradient(135deg,#fbbf24,#f59e0b)')}>
+                        {studyModeUpdating === m._id ? '…' : m.isInNightMode ? 'Revoke Study' : 'Approve Study'}
+                      </button>
+                      <button
+                        onClick={() => handleRemoveMember(m)}
+                        disabled={removingId === m._id}
+                        style={S.btn('rgba(239,68,68,.7)')}>
+                        {removingId === m._id ? 'Removing…' : '🗑 Remove'}
+                      </button>
+                    </div>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── STUDY MODE APPROVALS TAB ── */}
+        {tab === 'study-mode' && (
+          <div>
+            <div style={{ ...S.card, background: 'rgba(251,191,36,.06)', border: '1px solid rgba(251,191,36,.25)' }}>
+              <h2 style={{ margin: '0 0 6px', color: '#fbbf24', fontSize: 16, fontWeight: 800 }}>📚 Study Mode Approvals</h2>
+              <p style={{ margin: '0 0 16px', color: '#64748b', fontSize: 13 }}>
+                Students must be approved by admin to enter Study Mode. Go to the <strong style={{ color: '#fbbf24' }}>Members</strong> tab to approve/revoke individual students.
+              </p>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={() => setTab('members')} style={S.btn('linear-gradient(135deg,#fbbf24,#f59e0b)')}>
+                  👥 Go to Members
+                </button>
+              </div>
+            </div>
+            <div style={S.card}>
+              <h3 style={{ margin: '0 0 10px', color: '#e2e8f0', fontSize: 14 }}>Currently in Study Mode</h3>
+              {members.filter(m => m.isInNightMode).length === 0 ? (
+                <p style={{ color: '#475569', fontSize: 13 }}>No students are currently in Study Mode.</p>
+              ) : members.filter(m => m.isInNightMode).map(m => (
+                <div key={m._id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid rgba(96,165,250,.08)' }}>
+                  <span style={{ fontSize: 14 }}>@{m.username} — {m.name}</span>
+                  <button onClick={() => handleStudyModeToggle(m, false)} disabled={studyModeUpdating === m._id}
+                    style={S.btn('rgba(239,68,68,.6)')}>
+                    {studyModeUpdating === m._id ? '…' : 'Revoke'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── ADMINS TAB ── */}
+        {tab === 'admins' && (
+          <div>
+            <div style={S.card}>
+              <h3 style={{ margin: '0 0 14px', color: '#fbbf24', fontSize: 15, fontWeight: 800 }}>Create Admin</h3>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <input value={newAdminEmail} onChange={e => setNewAdminEmail(e.target.value)} placeholder="Admin email" type="email" style={{ ...S.input, maxWidth: 280 }} />
+                <input value={newAdminPassword} onChange={e => setNewAdminPassword(e.target.value)} placeholder="Password" type="password" style={{ ...S.input, maxWidth: 220 }} />
+                <button onClick={handleCreateAdmin} disabled={creatingAdmin || !newAdminEmail.trim() || !newAdminPassword}
+                  style={{ ...S.btn('linear-gradient(135deg,#3b82f6,#6366f1)'), opacity: creatingAdmin || !newAdminEmail.trim() || !newAdminPassword ? .5 : 1 }}>
+                  {creatingAdmin ? 'Creating…' : 'Create'}
+                </button>
+              </div>
+            </div>
+            <div style={S.card}>
+              <h3 style={{ margin: '0 0 14px', color: '#ef4444', fontSize: 15, fontWeight: 800 }}>Delete Admin</h3>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <input value={deleteAdminEmail} onChange={e => setDeleteAdminEmail(e.target.value)} placeholder="Admin email" type="email" style={{ ...S.input, maxWidth: 280 }} />
+                <input value={deleteAdminPassword} onChange={e => setDeleteAdminPassword(e.target.value)} placeholder="Admin password" type="password" style={{ ...S.input, maxWidth: 220 }} />
+                <button onClick={handleDeleteAdmin} disabled={deletingAdmin || !deleteAdminEmail.trim() || !deleteAdminPassword}
+                  style={{ ...S.btn('rgba(239,68,68,.8)'), opacity: deletingAdmin || !deleteAdminEmail.trim() || !deleteAdminPassword ? .5 : 1 }}>
+                  {deletingAdmin ? 'Deleting…' : 'Delete'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

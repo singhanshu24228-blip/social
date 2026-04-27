@@ -11,10 +11,11 @@ export default function Profile({ userId }: { userId: string }) {
   const [postsError, setPostsError] = useState('');
   const [isUploadingProfilePic, setIsUploadingProfilePic] = useState(false);
   const [profilePicError, setProfilePicError] = useState('');
-  const [editingBio, setEditingBio] = useState(false);
-  const [bioInput, setBioInput] = useState('');
-  const [isUpdatingBio, setIsUpdatingBio] = useState(false);
-  const [bioError, setBioError] = useState('');
+  const [editingDetail, setEditingDetail] = useState(false);
+  const [professionTypeInput, setProfessionTypeInput] = useState('');
+  const [professionDetailInput, setProfessionDetailInput] = useState('');
+  const [isUpdatingDetail, setIsUpdatingDetail] = useState(false);
+  const [detailError, setDetailError] = useState('');
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const isUnsupportedImageFile = (f: File) => {
@@ -226,42 +227,44 @@ export default function Profile({ userId }: { userId: string }) {
     }
   };
 
-  const handleBioUpdate = async () => {
-    if (!bioInput.trim()) {
-      setBioError('Bio cannot be empty');
+  const handleDetailUpdate = async () => {
+    if (professionTypeInput && !['Student', 'Working Professional'].includes(professionTypeInput)) {
+      setDetailError('Invalid profession type');
       return;
     }
 
-    if (bioInput.length > 280) {
-      setBioError('Bio must be 280 characters or less');
+    if (professionDetailInput.length > 280) {
+      setDetailError('Detail must be 280 characters or less');
       return;
     }
 
-    setIsUpdatingBio(true);
-    setBioError('');
+    setIsUpdatingDetail(true);
+    setDetailError('');
 
     try {
       const response = await api.put('/users/bio', {
-        about: bioInput.trim(),
+        professionType: professionTypeInput,
+        professionDetail: professionDetailInput.trim(),
       });
 
-      console.log('Bio update response:', response);
+      console.log('Detail update response:', response);
 
       // Update local user object
       setUser(response.data.user);
 
       // Update localStorage if this is the current user
       if (isOwnProfile && me) {
-        me.about = response.data.user.about;
+        me.professionType = response.data.user.professionType;
+        me.professionDetail = response.data.user.professionDetail;
         localStorage.setItem('user', JSON.stringify(me));
       }
 
-      setEditingBio(false);
+      setEditingDetail(false);
     } catch (err: any) {
-      setBioError(err?.response?.data?.message || 'Failed to update bio');
-      console.error('Bio update error:', err);
+      setDetailError(err?.response?.data?.message || 'Failed to update details');
+      console.error('Detail update error:', err);
     } finally {
-      setIsUpdatingBio(false);
+      setIsUpdatingDetail(false);
     }
   };
 
@@ -270,177 +273,199 @@ export default function Profile({ userId }: { userId: string }) {
   if (!user) return <div className="text-center py-8">User not found</div>;
 
   return (
-    <div className="max-w-md md:max-w-2xl lg:max-w-4xl mx-auto p-4">
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold">Profile</h1>
-        {isOwnProfile && (
-          <button
-            onClick={() => (window.location.pathname = '/message/payment')}
-            className="w-10 h-10 rounded-full bg-green-600 text-white hover:bg-green-700 flex items-center justify-center"
-            title="Payments"
-            aria-label="Payments"
-            type="button"
-          >
-            <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" aria-hidden="true">
-              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
-              <circle cx="12" cy="12" r="6.5" stroke="currentColor" strokeWidth="1.5" opacity="0.8" />
-              <path
-                d="M9.2 10.3c.3-1.2 1.4-2 2.8-2 1.6 0 2.8 1 2.8 2.4 0 1.3-1 2.1-2.6 2.3l-1.1.2c-1.1.2-1.9.7-1.9 1.7 0 1.1 1 1.9 2.5 1.9 1.3 0 2.3-.6 2.7-1.6"
-                stroke="currentColor"
-                strokeWidth="1.7"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
-        )}
+    <div style={{ minHeight: '100vh', background: '#0f0c1d', color: '#fff', fontFamily: 'Inter, system-ui, sans-serif', maxWidth: '480px', margin: '0 auto', position: 'relative' }}>
+
+      {/* Sticky Top Nav */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', background: 'rgba(15,12,29,0.92)', backdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+        <button
+          onClick={() => window.history.back()}
+          style={{ background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', fontSize: '18px' }}
+        >←</button>
+        <span style={{ fontWeight: 700, fontSize: '15px', color: '#c4b5fd', letterSpacing: '0.02em' }}>@{user?.username}</span>
+        <div style={{ width: '36px' }} />
       </div>
-      <div className="bg-white p-6 rounded shadow">
-        <div className="flex items-center gap-4 mb-4">
-          {/* Profile Picture */}
-          <div
-            className={`relative w-20 h-20 flex-shrink-0 ${isOwnProfile ? 'cursor-pointer' : ''}`}
-            onClick={handleProfilePictureClick}
-          >
-            {profilePicSrc ? (
-              <img
-                key={profilePicSrc}
-                src={profilePicSrc}
-                alt={user.name}
-                className="w-full h-full rounded-full object-cover border-2 border-blue-500 hover:opacity-80 transition"
-                onError={(e) => {
-                  console.error('Profile picture failed to load:', profilePicSrc);
-                  (e.target as HTMLImageElement).src = defaultInfinityLogo;
-                }}
-              />
-            ) : (
-              <img
-                src={defaultInfinityLogo}
-                alt="Infinity Logo"
-                className="w-full h-full rounded-full object-cover border-2 border-blue-500 hover:opacity-80 transition"
-              />
-            )}
-            {isOwnProfile && (
-              <div className="absolute bottom-0 right-0 bg-blue-600 rounded-full p-2 text-white hover:bg-blue-700 transition">
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
-                  />
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
-                  />
-                </svg>
-              </div>
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleProfilePictureChange}
-              className="hidden"
-            />
+
+      {user ? (
+        <>
+          {/* Cover Banner */}
+          <div style={{ position: 'relative', height: '130px', background: 'linear-gradient(135deg, #1e1040 0%, #7c3aed 50%, #db2777 100%)', overflow: 'hidden' }}>
+            {/* Decorative blobs */}
+            <div style={{ position: 'absolute', top: '-20px', left: '-20px', width: '120px', height: '120px', borderRadius: '50%', background: 'rgba(139,92,246,0.3)', filter: 'blur(30px)' }} />
+            <div style={{ position: 'absolute', bottom: '-30px', right: '20px', width: '100px', height: '100px', borderRadius: '50%', background: 'rgba(219,39,119,0.4)', filter: 'blur(25px)' }} />
+            <div style={{ position: 'absolute', top: '10px', right: '40%', width: '60px', height: '60px', borderRadius: '50%', background: 'rgba(245,158,11,0.2)', filter: 'blur(20px)' }} />
           </div>
 
-          {/* User Info */}
-          <div className="flex-1">
-            <div className="text-lg text-blue-600 font-semibold">@{user.username}</div>
-            <div className="text-gray-600">{user.name}</div>
-            {editingBio ? (
-              <div className="mt-2">
-                <textarea
-                  value={bioInput}
-                  onChange={(e) => setBioInput(e.target.value)}
-                  maxLength={280}
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Add a bio (max 280 characters)"
-                  rows={3}
-                />
-                <div className="text-xs text-gray-500 mt-1">{bioInput.length}/280</div>
-                {bioError && (
-                  <div className="text-sm text-red-600 mt-2">{bioError}</div>
-                )}
-                <div className="flex gap-2 mt-2">
-                  <button
-                    onClick={handleBioUpdate}
-                    disabled={isUpdatingBio}
-                    className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {isUpdatingBio ? 'Saving...' : 'Save'}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setEditingBio(false);
-                      setBioInput('');
-                      setBioError('');
-                    }}
-                    disabled={isUpdatingBio}
-                    className="px-3 py-1 bg-gray-400 text-white rounded text-sm hover:bg-gray-500 disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
+          {/* Avatar overlapping the banner */}
+          <div style={{ position: 'relative', padding: '0 20px' }}>
+            <div style={{ position: 'relative', display: 'inline-block', marginTop: '-48px' }}>
+              {/* Glow ring */}
+              <div style={{ width: '96px', height: '96px', borderRadius: '50%', padding: '3px', background: 'linear-gradient(135deg,#7c3aed,#db2777,#f59e0b)', boxShadow: '0 0 24px rgba(139,92,246,0.6)' }}>
+                <div style={{ width: '100%', height: '100%', borderRadius: '50%', background: '#1e1040', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                  <span style={{ color: '#c4b5fd', fontWeight: 700, fontSize: '32px' }}>
+                    {(user.username || 'U').charAt(0).toUpperCase()}
+                  </span>
+                  {profilePicSrc && (
+                    <img
+                      src={profilePicSrc}
+                      alt={user.name}
+                      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                    />
+                  )}
                 </div>
               </div>
-            ) : (
-              <>
-                {user.about && (
-                  <div className="text-sm text-gray-700 mt-2 italic">{user.about}</div>
-                )}
-                {isOwnProfile && (
-                  <button
-                    onClick={() => {
-                      setEditingBio(true);
-                      setBioInput(user.about || '');
-                    }}
-                    className="text-xs text-blue-600 hover:text-blue-700 mt-2"
-                  >
-                    {user.about ? 'Edit bio' : 'Add bio'}
-                  </button>
-                )}
-              </>
-            )}
-            <div className="text-sm text-gray-500 mt-2">
-              Status: {user.isOnline ? 'Online' : 'Offline'}
+              {/* Online indicator */}
+              {user.isOnline && (
+                <div style={{ position: 'absolute', bottom: '4px', right: '4px', width: '14px', height: '14px', borderRadius: '50%', background: '#22c55e', border: '2px solid #0f0c1d', boxShadow: '0 0 6px rgba(34,197,94,0.8)' }} />
+              )}
+              {/* Camera button for own profile */}
+              {isOwnProfile && (
+                <div
+                  onClick={handleProfilePictureClick}
+                  style={{ position: 'absolute', bottom: 2, right: 2, width: '26px', height: '26px', borderRadius: '50%', background: 'linear-gradient(135deg,#7c3aed,#db2777)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '13px', border: '2px solid #0f0c1d' }}
+                >📷</div>
+              )}
+              <input ref={fileInputRef} type="file" accept="image/*" onChange={handleProfilePictureChange} style={{ display: 'none' }} />
             </div>
-            <div className="text-sm text-gray-500">
-              Joined: {new Date(user.createdAt).toLocaleDateString()}
+
+            {/* Action button top-right */}
+            {!isOwnProfile && (
+              <div style={{ position: 'absolute', right: '20px', bottom: '0', display: 'flex', gap: '8px' }}>
+                <button style={{ padding: '8px 20px', background: 'linear-gradient(135deg,#7c3aed,#db2777)', color: '#fff', border: 'none', borderRadius: '20px', fontWeight: 700, fontSize: '13px', cursor: 'pointer', boxShadow: '0 4px 15px rgba(139,92,246,0.4)' }}>
+                  Follow
+                </button>
+                <button style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.1)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '20px', fontWeight: 600, fontSize: '13px', cursor: 'pointer' }}>
+                  Message
+                </button>
+              </div>
+            )}
+            {isOwnProfile && (
+              <div style={{ position: 'absolute', right: '20px', bottom: '0' }}>
+                <button
+                  onClick={() => window.location.href = '/set-detail'}
+                  style={{ padding: '8px 18px', background: 'rgba(255,255,255,0.1)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '20px', fontWeight: 600, fontSize: '13px', cursor: 'pointer' }}
+                >
+                  Edit Profile
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Name & Bio */}
+          <div style={{ padding: '14px 20px 0' }}>
+            <div style={{ fontWeight: 700, fontSize: '20px', color: '#fff', letterSpacing: '0.01em' }}>{user.name}</div>
+            <div style={{ color: '#a78bfa', fontSize: '13px', marginTop: '2px', fontWeight: 500 }}>@{user.username}</div>
+
+            {/* Profession Tag */}
+            {(user.professionType || user.professionDetail) && (
+              <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+                {user.professionType && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'rgba(139,92,246,0.2)', border: '1px solid rgba(139,92,246,0.4)', borderRadius: '20px', padding: '3px 10px', fontSize: '11px', fontWeight: 700, color: '#c4b5fd', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    🎓 {user.professionType}
+                  </span>
+                )}
+                {user.professionDetail && (
+                  <span style={{ color: '#d1d5db', fontSize: '13px' }}>{user.professionDetail}</span>
+                )}
+              </div>
+            )}
+
+            {/* Additional details */}
+            {user.additionalDetails && user.additionalDetails.length > 0 && (
+              <div style={{ marginTop: '6px' }}>
+                {user.additionalDetails.map((detail: string, idx: number) => (
+                  <div key={idx} style={{ color: '#9ca3af', fontSize: '12px', marginTop: '2px' }}>• {detail}</div>
+                ))}
+              </div>
+            )}
+
+            {/* Joined */}
+            <div style={{ color: '#6b7280', fontSize: '11px', marginTop: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              🗓 Joined {new Date(user.createdAt).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
             </div>
           </div>
-        </div>
 
-        {isUploadingProfilePic && (
-          <div className="text-center py-2 text-blue-600">Uploading profile picture...</div>
-        )}
-        {profilePicError && (
-          <div className="text-center py-2 text-red-600 text-sm">{profilePicError}</div>
-        )}
-      </div>
+          {/* Stats Row — Glassmorphism */}
+          <div style={{ margin: '16px 16px 0', display: 'flex', gap: '8px' }}>
+            {[
+              { label: 'Posts', value: posts.length },
+              { label: 'Followers', value: user.followersCount || 0 },
+              { label: 'Following', value: user.followingCount || 0 },
+            ].map(stat => (
+              <div key={stat.label} style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)', borderRadius: '14px', padding: '12px 8px', textAlign: 'center', backdropFilter: 'blur(8px)' }}>
+                <div style={{ fontWeight: 800, fontSize: '18px', color: '#e9d5ff', lineHeight: 1 }}>{stat.value}</div>
+                <div style={{ fontSize: '10px', color: '#9ca3af', marginTop: '4px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{stat.label}</div>
+              </div>
+            ))}
+          </div>
 
-      {postsLoading && <div className="text-center py-4">Loading posts...</div>}
-      {postsError && <div className="text-center py-4 text-red-600">{postsError}</div>}
-      {posts && posts.length > 0 && (
-        <div className="mt-6">
-          <h2 className="text-xl font-bold mb-4">Posts</h2>
-          {posts.map((post) => (
-            <Post key={post._id} post={post} hideInteractions={false} hideAudioControls={false} />
-          ))}
-        </div>
+          {/* Divider with tab */}
+          <div style={{ margin: '16px 0 0', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex' }}>
+            <div style={{ flex: 1, padding: '12px 0', textAlign: 'center', borderBottom: '2px solid #7c3aed', color: '#c4b5fd' }}>
+              <svg style={{ width: '20px', height: '20px', display: 'inline' }} fill="currentColor" viewBox="0 0 24 24">
+                <rect fill="none" height="18" stroke="currentColor" strokeWidth="2" width="18" x="3" y="3"></rect>
+                <line stroke="currentColor" strokeWidth="2" x1="9" x2="9" y1="3" y2="21"></line>
+                <line stroke="currentColor" strokeWidth="2" x1="15" x2="15" y1="3" y2="21"></line>
+                <line stroke="currentColor" strokeWidth="2" x1="3" x2="21" y1="9" y2="9"></line>
+                <line stroke="currentColor" strokeWidth="2" x1="3" x2="21" y1="15" y2="15"></line>
+              </svg>
+            </div>
+          </div>
+
+          {/* Posts Grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px', paddingBottom: '80px' }}>
+            {postsLoading ? (
+              <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '60px 0', color: '#a78bfa' }}>Loading posts...</div>
+            ) : postsError ? (
+              <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '40px 0', color: '#f87171' }}>{postsError}</div>
+            ) : posts.length === 0 ? (
+              <div style={{ gridColumn: '1/-1', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '60px 20px', color: '#6b7280' }}>
+                <div style={{ width: '64px', height: '64px', borderRadius: '50%', border: '2px solid rgba(139,92,246,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '16px', fontSize: '28px' }}>📷</div>
+                <div style={{ fontWeight: 700, fontSize: '18px', color: '#e5e7eb' }}>No Posts Yet</div>
+                <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>When {user.name} posts, you'll see it here.</div>
+              </div>
+            ) : (
+              posts.map((post) => {
+                const urlPath = (post.imageUrl || '').split('?')[0].toLowerCase();
+                const isVideo = /\.(mp4|mov|avi|webm|ogv)$/i.test(urlPath);
+                return (
+                  <div
+                    key={post._id}
+                    style={{ aspectRatio: '1', position: 'relative', overflow: 'hidden', cursor: 'pointer', background: '#1e1040' }}
+                    onClick={() => window.location.href = '/message'}
+                    className="group"
+                  >
+                    {post.imageUrl ? (
+                      isVideo ? (
+                        <video src={resolveMediaUrl(post.imageUrl)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ) : (
+                        <img src={resolveMediaUrl(post.imageUrl)} alt="post" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      )
+                    ) : (
+                      <div style={{ width: '100%', height: '100%', background: 'linear-gradient(135deg,#1e1040,#7c3aed,#db2777)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px' }}>
+                        <span style={{ color: '#fff', fontSize: '11px', fontWeight: 600, textAlign: 'center', display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{post.content}</span>
+                      </div>
+                    )}
+                    {/* Hover overlay */}
+                    <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity" style={{ background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '16px' }}>
+                      <span style={{ color: '#fff', fontSize: '13px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        ❤️ {post.likes?.length || 0}
+                      </span>
+                      <span style={{ color: '#fff', fontSize: '13px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        💬 {post.comments?.length || 0}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </>
+      ) : (
+        <div style={{ textAlign: 'center', padding: '80px 20px', color: '#a78bfa' }}>Loading profile...</div>
       )}
-      <button
-        onClick={() => window.history.back()}
-        className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-      >
-        Back
-      </button>
     </div>
   );
 }
+
+
