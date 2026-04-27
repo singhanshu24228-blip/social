@@ -104,30 +104,35 @@ router.post(
   '/',
   requireAuth,
   (req: Request, res: Response, next: NextFunction) => {
-    upload.fields([{ name: 'image' }, { name: 'song' }])(req as any, res as any, (err: any) => {
+    // Use upload.any() to capture ALL fields (files and text), then manually validate
+    upload.any()(req as any, res as any, (err: any) => {
       if (err) {
         return res.status(400).json({ message: err.message || 'Upload failed' });
+      }
+      // Text fields from FormData should now be in req.body
+      // Log for debugging
+      if (process.env.DEBUG_POSTS?.trim() === 'true') {
+        console.log('[createPost] Parsed req.body:', req.body);
+        console.log('[createPost] Parsed req.files:', (req as any).files?.map((f: any) => ({ name: f.fieldname, originalname: f.originalname })));
       }
       next();
     });
   },
   async (req: Request, res: Response, _next: NextFunction) => {
   try {
-    // Validate uploaded files
-    if ((req as any).files) {
-      const files = (req as any).files as { [fieldname: string]: Express.Multer.File[] };
-      for (const fieldName in files) {
-        for (const file of files[fieldName]) {
-          if (!validateUploadedFile(file.path, file.mimetype)) {
-            try {
-              fs.unlinkSync(file.path); // best-effort cleanup
-            } catch (e) {
-              console.warn('[posts] Failed to delete invalid upload:', file.path, e);
-            }
-            return res.status(400).json({
-              message: 'Uploaded file appears to be corrupted or invalid. Please try uploading again.'
-            });
+    // Validate uploaded files (now in array format from upload.any())
+    if (Array.isArray((req as any).files) && (req as any).files.length > 0) {
+      const files = (req as any).files as Express.Multer.File[];
+      for (const file of files) {
+        if (!validateUploadedFile(file.path, file.mimetype)) {
+          try {
+            fs.unlinkSync(file.path); // best-effort cleanup
+          } catch (e) {
+            console.warn('[posts] Failed to delete invalid upload:', file.path, e);
           }
+          return res.status(400).json({
+            message: 'Uploaded file appears to be corrupted or invalid. Please try uploading again.'
+          });
         }
       }
     }

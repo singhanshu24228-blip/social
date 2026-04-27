@@ -958,6 +958,11 @@ export default function Message({ groupName }: { groupName?: string | null }) {
   const [visiblePostId, setVisiblePostId] = useState<string>('');
   const [currentPlayingPostId, setCurrentPlayingPostId] = useState<string>('');
   const postCardElsRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const currentPlayingAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    currentPlayingAudioRef.current = currentPlayingAudio;
+  }, [currentPlayingAudio]);
 
   useEffect(() => {
     // Most browsers require a user gesture before audio can autoplay.
@@ -1052,8 +1057,9 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     if (els.length === 0) return;
 
     const observer = new IntersectionObserver(
-      (entries) => {
-        // Find posts that are in the middle of the screen
+      () => {
+        // Recompute from all mounted post cards so the active post stays in sync
+        // even when the observer callback only contains a subset of changed entries.
         const viewportHeight = window.innerHeight;
         const viewportCenter = viewportHeight / 2;
         const centerTolerance = viewportHeight * 0.2; // 20% of screen height tolerance
@@ -1061,17 +1067,18 @@ export default function Message({ groupName }: { groupName?: string | null }) {
         let centerPostId = '';
         let minDistanceToCenter = Infinity;
 
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            const rect = entry.boundingClientRect;
-            const elementCenter = rect.top + rect.height / 2;
-            const distanceToCenter = Math.abs(elementCenter - viewportCenter);
+        els.forEach((el) => {
+          const rect = el.getBoundingClientRect();
+          const isIntersecting = rect.bottom > 0 && rect.top < viewportHeight;
+          if (!isIntersecting) return;
 
-            // Check if element center is within tolerance of viewport center
-            if (distanceToCenter < centerTolerance && distanceToCenter < minDistanceToCenter) {
-              centerPostId = entry.target.getAttribute('data-post-id') || '';
-              minDistanceToCenter = distanceToCenter;
-            }
+          const elementCenter = rect.top + rect.height / 2;
+          const distanceToCenter = Math.abs(elementCenter - viewportCenter);
+
+          // Check if element center is within tolerance of viewport center
+          if (distanceToCenter < centerTolerance && distanceToCenter < minDistanceToCenter) {
+            centerPostId = el.getAttribute('data-post-id') || '';
+            minDistanceToCenter = distanceToCenter;
           }
         });
 
@@ -1084,18 +1091,59 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     return () => observer.disconnect();
   }, [filteredPosts]);
 
-  useEffect(() => {
-    const stop = () => {
-      if (currentPlayingAudio) {
-        currentPlayingAudio.pause();
-        currentPlayingAudio.currentTime = 0;
+  const stopCurrentPostAudio = useCallback(() => {
+    const activeAudio = currentPlayingAudioRef.current;
+    if (activeAudio) {
+      activeAudio.pause();
+      activeAudio.currentTime = 0;
+    }
+    currentPlayingAudioRef.current = null;
+    setCurrentPlayingAudio(null);
+    setCurrentPlayingPostId('');
+  }, []);
+
+  const playPostSong = useCallback((post: any, options?: { ignoreMute?: boolean }) => {
+    const pid = String(post?._id || post?.id || '');
+    if (!post?.songUrl || !pid) return;
+    if (!options?.ignoreMute && postMuted[pid]) return;
+    if (pid === currentPlayingPostId) return;
+
+    stopCurrentPostAudio();
+
+    const audioUrl = resolveMediaUrl(post.songUrl);
+    const audio = new Audio(audioUrl);
+    audio.volume = 0.3;
+    audio.onended = () => {
+      if (currentPlayingAudioRef.current === audio) {
+        stopCurrentPostAudio();
       }
-      setCurrentPlayingAudio(null);
-      setCurrentPlayingPostId('');
     };
 
+    audio
+      .play()
+      .then(() => {
+        currentPlayingAudioRef.current = audio;
+        setCurrentPlayingAudio(audio);
+        setCurrentPlayingPostId(pid);
+      })
+      .catch(() => {
+        if (!audioAutoplayEnabled && !didShowAutoplayHint) {
+          setMsg('Tap anywhere once to enable auto-play for songs');
+          setDidShowAutoplayHint(true);
+        }
+        stopCurrentPostAudio();
+      });
+  }, [
+    postMuted,
+    currentPlayingPostId,
+    stopCurrentPostAudio,
+    audioAutoplayEnabled,
+    didShowAutoplayHint,
+  ]);
+
+  useEffect(() => {
     if (!visiblePostId) {
-      stop();
+      stopCurrentPostAudio();
       return;
     }
 
@@ -1103,58 +1151,44 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     const pid = String(post?._id || post?.id || '');
 
     if (!post?.songUrl || !pid || postMuted[pid]) {
-      stop();
+      stopCurrentPostAudio();
       return;
     }
 
     if (pid === currentPlayingPostId) return;
 
-    // switch audio to the newly visible post
-    stop();
-
-    const audioUrl = resolveMediaUrl(post.songUrl);
-    const audio = new Audio(audioUrl);
-    audio.volume = 0.3;
-    setCurrentPlayingAudio(audio);
-    setCurrentPlayingPostId(pid);
-
-    audio
-      .play()
-      .catch(() => {
-        // Autoplay is likely blocked until user interacts
-        if (!audioAutoplayEnabled && !didShowAutoplayHint) {
-          setMsg('Tap anywhere once to enable auto-play for songs');
-          setDidShowAutoplayHint(true);
-        }
-        stop();
-      });
+    playPostSong(post);
   }, [
     visiblePostId,
     filteredPosts,
     postMuted,
-    currentPlayingAudio,
     currentPlayingPostId,
-    audioAutoplayEnabled,
-    didShowAutoplayHint,
+    playPostSong,
+    stopCurrentPostAudio,
   ]);
 
   const togglePostMute = (postId: string) => {
     const pid = postId || '';
-    setPostMuted(prev => {
-      const newMuted = { ...prev };
-      if (newMuted[pid]) {
-        delete newMuted[pid];
-      } else {
-        newMuted[pid] = true;
-        // Stop any playing audio for this post
-        if (currentPlayingAudio) {
-          currentPlayingAudio.pause();
-          currentPlayingAudio.currentTime = 0;
-          setCurrentPlayingAudio(null);
-        }
+    const isMuted = !!postMuted[pid];
+
+    if (isMuted) {
+      setPostMuted(prev => {
+        const next = { ...prev };
+        delete next[pid];
+        return next;
+      });
+
+      const post = filteredPosts.find((p: any) => String(p?._id || p?.id || '') === pid);
+      if (post) {
+        window.setTimeout(() => playPostSong(post, { ignoreMute: true }), 0);
       }
-      return newMuted;
-    });
+      return;
+    }
+
+    setPostMuted(prev => ({ ...prev, [pid]: true }));
+    if (currentPlayingPostId === pid) {
+      stopCurrentPostAudio();
+    }
   };
 
   // Post scoring algorithm
@@ -2413,9 +2447,9 @@ export default function Message({ groupName }: { groupName?: string | null }) {
       if (postContent.trim()) formData.append('content', postContent);
       formData.append('anonymous', String(postAnonymous));
       formData.append('isPrivate', String(postPrivate));
+      if (postSong) formData.append('songUrl', postSong);
 
       if (postImage) formData.append('image', postImage);
-      if (postSong) formData.append('songUrl', postSong);
 
       const response = await api.post('/posts', formData);
       console.log('Post created successfully:', response.data);
@@ -3019,7 +3053,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                         setHeaderMenuOpen(false);
                         setMode('communities');
                       }}
-                      className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:bg-black rounded"
+                      className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:bg-black rounded text-white"
                     >
                       <span>🌐</span>
                       <span>Create Community</span>
@@ -3037,34 +3071,34 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                         window.location.replace('/');
                         setHeaderMenuOpen(false);
                       }}
-                      className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:bg-black rounded"
+                      className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:bg-black rounded text-white"
                     >
                       <span>🔓</span>
                       <span>Logout</span>
                     </button>
                     <button
                       onClick={() => { setShowWallpaperPicker(true); setHeaderMenuOpen(false); }}
-                      className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:bg-black rounded"
+                      className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:bg-black rounded text-white"
                     >
                       <span>🖼️</span>
                       <span>Change Wallpaper</span>
                     </button>
                     <button
                       onClick={() => { setShowTextColorPicker(true); setHeaderMenuOpen(false); }}
-                      className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:bg-black rounded"
+                      className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:bg-black rounded text-white"
                     >
                       <span>🎨</span>
                       <span>Text Color</span>
                     </button>
                     <button
                       onClick={() => { setShowTextSizePicker(true); setHeaderMenuOpen(false); }}
-                      className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:bg-black rounded"
+                      className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:bg-black rounded text-white"
                     >
                       <span>📏</span>
                       <span>Text Size</span>
                     </button>
                     <button
-                      className='w-full text-left px-3 py-2 flex items-center space-x-2 hover:bg-black rounded'
+                      className='w-full text-left px-3 py-2 flex items-center space-x-2 hover:bg-black rounded text-white'
                       onClick={() => {
                         setShowUsernameDialog(true);
                         setHeaderMenuOpen(false);
@@ -3074,7 +3108,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                       <span>Change Username</span>
                     </button>
                     <button
-                      className='text-red-800 w-full text-left px-3 py-2 flex items-center space-x-2 hover:bg-black rounded'
+                      className='text-red-600 w-full text-left px-3 py-2 flex items-center space-x-2 hover:bg-black rounded'
                       onClick={() => {
                         setShowDeleteDialog(true);
                         setHeaderMenuOpen(false);
@@ -3084,7 +3118,7 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                       <span>Delete Account</span>
                     </button>
                     <button
-                      className='w-full text-left px-3 py-2 flex items-center space-x-2 hover:bg-black rounded'
+                      className='w-full text-left px-3 py-2 flex items-center space-x-2 hover:bg-black rounded text-white'
                       onClick={async () => {
                         setHeaderMenuOpen(false);
                         setShowBlockedUsersDialog(true);
@@ -3094,9 +3128,9 @@ export default function Message({ groupName }: { groupName?: string | null }) {
                       <span>🚫</span>
                       <span>Blocked Users</span>
                     </button>
-                    <a href="mailto:sociovio4@gmail.com" className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:text-blue-600 hover:bg-black rounded">Contact us</a>
-                    <a href="/termandcondition" onClick={() => setHeaderMenuOpen(false)} className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:text-blue-600 hover:bg-black rounded">📋 Terms & Conditions</a>
-                    <a href="/PrivacyPolicy" onClick={() => setHeaderMenuOpen(false)} className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:text-blue-600 hover:bg-black rounded">🔒 Privacy Policy</a>
+                    <a href="mailto:sociovio4@gmail.com" className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:text-blue-600 hover:bg-black rounded text-white">Contact us</a>
+                    <a href="/termandcondition" onClick={() => setHeaderMenuOpen(false)} className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:text-blue-600 hover:bg-black rounded text-white">📋 Terms & Conditions</a>
+                    <a href="/PrivacyPolicy" onClick={() => setHeaderMenuOpen(false)} className="w-full text-left px-3 py-2 flex items-center space-x-2 hover:text-blue-600 hover:bg-black rounded text-white">🔒 Privacy Policy</a>
                   </div>
                 </aside>
               </>

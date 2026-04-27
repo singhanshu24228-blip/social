@@ -56,8 +56,12 @@ export const createPost = async (req: Request, res: Response) => {
 
     // compute image URL; handle both upload and provided URL
     let imageUrl: string | undefined;
-    if ((req as any).files?.image) {
-      const file = (req as any).files.image[0];
+    const imageFile = Array.isArray((req as any).files)
+      ? (req as any).files.find((f: any) => f.fieldname === 'image')
+      : (req as any).files?.image?.[0];
+    
+    if (imageFile) {
+      const file = imageFile;
       if (debugPosts) {
         console.log(`File uploaded with name: ${file.filename}, size: ${file.size}`);
       }
@@ -101,8 +105,12 @@ export const createPost = async (req: Request, res: Response) => {
 
     // allow using an uploaded file or an existing song URL passed in the body
     let songUrl: string | undefined;
-    if ((req as any).files?.song) {
-      const sfile = (req as any).files.song[0];
+    const songFile = Array.isArray((req as any).files)
+      ? (req as any).files.find((f: any) => f.fieldname === 'song')
+      : (req as any).files?.song?.[0];
+    
+    if (songFile) {
+      const sfile = songFile;
       if (isCloudinaryConfigured) {
         const filePath = path.join(uploadsDir, sfile.filename);
         try {
