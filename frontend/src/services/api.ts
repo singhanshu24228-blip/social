@@ -259,6 +259,7 @@ export const resolveMediaUrl = (u: any) => {
   if (s.startsWith('data:') || s.startsWith('blob:')) return s;
 
   const base = getUploadBaseURL();
+  const appBase = String((import.meta as any).env.BASE_URL || '').replace(/\/$/, '');
 
   if (s.startsWith('http://') || s.startsWith('https://')) {
     try {
@@ -281,6 +282,7 @@ export const resolveMediaUrl = (u: any) => {
 
   if (s.startsWith('/uploads/')) return `${base}${s}`;
   if (s.startsWith('uploads/')) return `${base}/${s}`;
+  if (s.startsWith('/') && !s.startsWith('/uploads/')) return `${appBase}${s}`;
 
   // Back-compat: sometimes older data stores just the filename (no /uploads prefix)
   if (!s.includes('/') && /\.(png|jpe?g|gif|webp|mp4|webm|ogg|mov|m4v|mp3|m4a|wav|aac|flac)$/i.test(s)) {

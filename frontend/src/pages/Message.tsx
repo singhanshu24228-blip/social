@@ -613,42 +613,6 @@ export default function Message({ groupName }: { groupName?: string | null }) {
     loadFollowersAndFollowing();
   };
 
-  const resolveMediaUrl = (u: any) => {
-    const s = String(u || '');
-    if (!s) return '';
-    if (s.startsWith('data:') || s.startsWith('blob:')) return s;
-    if (s.startsWith('http://') || s.startsWith('https://')) {
-      try {
-        const parsed = new URL(s);
-        if (parsed.pathname.startsWith('/uploads/')) {
-          const base = getUploadBaseURL();
-          if (base) {
-            const baseUrl = new URL(base, window.location.origin);
-            if (parsed.origin !== baseUrl.origin) {
-              return `${baseUrl.origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
-            }
-          }
-        }
-      } catch {
-        // ignore URL parsing failures; fall through
-      }
-      return s;
-    }
-    if (s.startsWith('/uploads/')) return `${getUploadBaseURL()}${s}`;
-    if (s.startsWith('uploads/')) return `${getUploadBaseURL()}/${s}`;
-
-    // Handle song files that are in public folder (e.g., /Aakh%20talabani.m4a)
-    if (s.startsWith('/') && /\.(mp3|m4a|wav|ogg|aac|flac)$/i.test(s)) {
-      return s; // Return as-is for public folder assets
-    }
-    if (!s.includes('/') && /\.(png|jpe?g|gif|webp|mp4|webm|ogg|mov|m4v)$/i.test(s)) {
-      const base = getUploadBaseURL();
-      return base ? `${base}/uploads/${s}` : `/uploads/${s}`;
-    }
-
-    return s;
-  };
-
   const shortTimeAgo = (dateStr: string): string => {
     try {
       const diff = Date.now() - new Date(dateStr).getTime();
@@ -1115,7 +1079,8 @@ export default function Message({ groupName }: { groupName?: string | null }) {
         setCurrentPlayingAudio(audio);
         setCurrentPlayingPostId(pid);
       })
-      .catch(() => {
+      .catch((error) => {
+        console.error('[Message] Audio play failed', { audioUrl, pid, error });
         if (!audioAutoplayEnabled && !didShowAutoplayHint) {
           setMsg('Tap the play or unmute button once to enable song auto-play');
           setDidShowAutoplayHint(true);
