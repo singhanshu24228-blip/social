@@ -24,6 +24,37 @@ interface FloatingComment extends Comment {
   willRemoveAt: number;
 }
 
+interface RemoteStreamTile {
+  streamerSocketId: string;
+  streamerUserId: string;
+  stream: MediaStream | null;
+  isConnecting: boolean;
+}
+
+const RemoteVideoCard: React.FC<{ label: string; stream: MediaStream | null }> = ({ label, stream }) => {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    el.srcObject = stream;
+    el.muted = true;
+    if (stream) {
+      el.play?.().catch(() => {});
+    }
+    return () => {
+      if (el) el.srcObject = null;
+    };
+  }, [stream]);
+
+  return (
+    <div style={{ background: 'rgba(2,6,23,.9)', border: '1px solid rgba(96,165,250,.18)', borderRadius: 12, overflow: 'hidden' }}>
+      <div style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, color: '#cbd5e1', borderBottom: '1px solid rgba(96,165,250,.12)' }}>{label}</div>
+      <video ref={videoRef} autoPlay muted playsInline style={{ width: '100%', height: 220, objectFit: 'cover', background: '#000' }} />
+    </div>
+  );
+};
+
 const RoomView: React.FC<RoomViewProps> = ({ roomId, onClose, currentUserId }) => {
   const [room, setRoom] = useState<any>(null);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -38,19 +69,16 @@ const RoomView: React.FC<RoomViewProps> = ({ roomId, onClose, currentUserId }) =
   const [isStreaming, setIsStreaming] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const mediaInputRef = React.useRef<HTMLInputElement>(null);
 
   const socketRef = useRef<Socket | null>(null);
   const broadcasterPeersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const broadcasterPendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
-  const viewerPeerRef = useRef<RTCPeerConnection | null>(null);
-  const viewerPendingIceRef = useRef<RTCIceCandidateInit[]>([]);
-  const remoteStreamerSocketIdRef = useRef<string | null>(null);
+  const viewerPeersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const viewerPendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
   const isStreamingRef = useRef(false);
-  const [remoteStreamActive, setRemoteStreamActive] = useState(false);
-  const [hostIsLive, setHostIsLive] = useState(false);
+  const [remoteStreams, setRemoteStreams] = useState<RemoteStreamTile[]>([]);
 
   useEffect(() => {
     localStreamRef.current = localStream;
@@ -82,16 +110,43 @@ const RoomView: React.FC<RoomViewProps> = ({ roomId, onClose, currentUserId }) =
     ],
   };
 
-  const stopViewer = () => {
+  const upsertRemoteStream = (streamerSocketId: string, streamerUserId: string, updates: Partial<RemoteStreamTile>) => {
+    setRemoteStreams((prev) => {
+      const existing = prev.find((item) => item.streamerSocketId === streamerSocketId);
+      if (existing) {
+        return prev.map((item) => (
+          item.streamerSocketId === streamerSocketId
+            ? { ...item, ...updates, streamerUserId: streamerUserId || item.streamerUserId }
+            : item
+        ));
+      }
+      return [...prev, {
+        streamerSocketId,
+        streamerUserId,
+        stream: null,
+        isConnecting: true,
+        ...updates,
+      }];
+    });
+  };
+
+  const removeRemoteStream = (streamerSocketId: string) => {
+    setRemoteStreams((prev) => prev.filter((item) => item.streamerSocketId !== streamerSocketId));
+  };
+
+  const stopViewer = (streamerSocketId: string) => {
     try {
-      if (viewerPeerRef.current) viewerPeerRef.current.close();
+      viewerPeersRef.current.get(streamerSocketId)?.close();
     } catch {}
-    viewerPeerRef.current = null;
-    viewerPendingIceRef.current = [];
-    remoteStreamerSocketIdRef.current = null;
-    setRemoteStreamActive(false);
-    setHostIsLive(false);
-    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+    viewerPeersRef.current.delete(streamerSocketId);
+    viewerPendingIceRef.current.delete(streamerSocketId);
+    removeRemoteStream(streamerSocketId);
+  };
+
+  const stopAllViewers = () => {
+    for (const streamerSocketId of viewerPeersRef.current.keys()) {
+      stopViewer(streamerSocketId);
+    }
   };
 
   const stopBroadcasterPeers = () => {
@@ -114,28 +169,20 @@ const RoomView: React.FC<RoomViewProps> = ({ roomId, onClose, currentUserId }) =
       if (!payload || String(payload.roomId) !== String(roomId)) return;
       if (String(payload.streamerUserId) === String(currentUserId)) return;
 
-      setHostIsLive(true);
-      setRemoteStreamActive(false);
       const streamerSocketId = String(payload.streamerSocketId || '');
+      const streamerUserId = String(payload.streamerUserId || '');
       if (!streamerSocketId) return;
 
-      // (Re)start viewer peer
-      stopViewer();
-      remoteStreamerSocketIdRef.current = streamerSocketId;
+      stopViewer(streamerSocketId);
+      upsertRemoteStream(streamerSocketId, streamerUserId, { stream: null, isConnecting: true });
 
       const pc = new RTCPeerConnection(rtcConfig);
-      viewerPeerRef.current = pc;
+      viewerPeersRef.current.set(streamerSocketId, pc);
 
       pc.ontrack = (ev) => {
         const stream = ev.streams?.[0];
         if (!stream) return;
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = stream;
-          // Keep muted by default so autoplay works reliably across browsers.
-          remoteVideoRef.current.muted = true;
-          remoteVideoRef.current.play?.().catch(() => {});
-        }
-        setRemoteStreamActive(true);
+        upsertRemoteStream(streamerSocketId, streamerUserId, { stream, isConnecting: false });
       };
 
       pc.onicecandidate = (ev) => {
@@ -152,7 +199,9 @@ const RoomView: React.FC<RoomViewProps> = ({ roomId, onClose, currentUserId }) =
 
     const onStop = (payload: any) => {
       if (!payload || String(payload.roomId) !== String(roomId)) return;
-      stopViewer();
+      const streamerSocketId = String(payload.streamerSocketId || '');
+      if (!streamerSocketId) return;
+      stopViewer(streamerSocketId);
     };
 
     const onViewerReady = async (payload: any) => {
@@ -202,7 +251,7 @@ const RoomView: React.FC<RoomViewProps> = ({ roomId, onClose, currentUserId }) =
       const fromSocketId = String(payload.fromSocketId || '');
       if (!fromSocketId) return;
 
-      const pc = viewerPeerRef.current;
+      const pc = viewerPeersRef.current.get(fromSocketId);
       if (!pc) return;
 
       try {
@@ -215,7 +264,8 @@ const RoomView: React.FC<RoomViewProps> = ({ roomId, onClose, currentUserId }) =
           sdp: pc.localDescription,
         });
 
-        const pending = viewerPendingIceRef.current.splice(0);
+        const pending = viewerPendingIceRef.current.get(fromSocketId) || [];
+        viewerPendingIceRef.current.delete(fromSocketId);
         for (const c of pending) {
           try {
             await pc.addIceCandidate(c);
@@ -254,31 +304,31 @@ const RoomView: React.FC<RoomViewProps> = ({ roomId, onClose, currentUserId }) =
       const candidate: RTCIceCandidateInit | undefined = payload.candidate;
       if (!fromSocketId || !candidate) return;
 
-      if (isStreamingRef.current) {
-        const pc = broadcasterPeersRef.current.get(fromSocketId);
-        if (!pc) return;
-        if (!pc.remoteDescription) {
+      const broadcasterPeer = broadcasterPeersRef.current.get(fromSocketId);
+      if (broadcasterPeer) {
+        if (!broadcasterPeer.remoteDescription) {
           const pending = broadcasterPendingIceRef.current.get(fromSocketId) || [];
           pending.push(candidate);
           broadcasterPendingIceRef.current.set(fromSocketId, pending);
           return;
         }
         try {
-          await pc.addIceCandidate(candidate);
+          await broadcasterPeer.addIceCandidate(candidate);
         } catch {}
         return;
       }
 
-      if (remoteStreamerSocketIdRef.current && fromSocketId !== remoteStreamerSocketIdRef.current) return;
-      const pc = viewerPeerRef.current;
-      if (!pc) return;
+      const viewerPeer = viewerPeersRef.current.get(fromSocketId);
+      if (!viewerPeer) return;
 
-      if (!pc.remoteDescription) {
-        viewerPendingIceRef.current.push(candidate);
+      if (!viewerPeer.remoteDescription) {
+        const pending = viewerPendingIceRef.current.get(fromSocketId) || [];
+        pending.push(candidate);
+        viewerPendingIceRef.current.set(fromSocketId, pending);
         return;
       }
       try {
-        await pc.addIceCandidate(candidate);
+        await viewerPeer.addIceCandidate(candidate);
       } catch {}
     };
 
@@ -299,7 +349,7 @@ const RoomView: React.FC<RoomViewProps> = ({ roomId, onClose, currentUserId }) =
       socket.off('nightroom:stream:offer', onOffer);
       socket.off('nightroom:stream:answer', onAnswer);
       socket.off('nightroom:stream:ice', onIce);
-      stopViewer();
+      stopAllViewers();
       stopBroadcasterPeers();
     };
   }, [roomId, currentUserId]);
@@ -445,7 +495,6 @@ const RoomView: React.FC<RoomViewProps> = ({ roomId, onClose, currentUserId }) =
         const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         setLocalStream(s);
         setIsStreaming(true);
-        setHostIsLive(false);
         setError('');
         socketRef.current?.emit('nightroom:stream:start', { roomId });
       } catch (err: any) {
@@ -597,21 +646,39 @@ const RoomView: React.FC<RoomViewProps> = ({ roomId, onClose, currentUserId }) =
               <span style={{ fontSize: 14, fontWeight: 700, color: '#fbbf24' }}>📹 Live Cameras</span>
               {isStreaming ? (
                 <span style={{ fontSize: 11, color: '#ef4444', fontWeight: 700, background: 'rgba(239,68,68,.15)', padding: '2px 8px', borderRadius: 20, border: '1px solid rgba(239,68,68,.3)' }}>● LIVE</span>
-              ) : hostIsLive ? (
-                <span style={{ fontSize: 11, color: '#10b981', fontWeight: 700 }}>{remoteStreamActive ? 'WATCHING' : 'CONNECTING…'}</span>
+              ) : remoteStreams.length > 0 ? (
+                <span style={{ fontSize: 11, color: '#10b981', fontWeight: 700 }}>
+                  {remoteStreams.some((stream) => stream.isConnecting) ? 'CONNECTING…' : `${remoteStreams.length} LIVE`}
+                </span>
               ) : (
                 <span style={{ fontSize: 11, color: '#475569' }}>No cameras active</span>
               )}
             </div>
-            {isStreaming ? (
+            {(isStreaming || remoteStreams.length > 0) ? (
               <>
-                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>You are live — everyone in the room can watch</div>
-                <video ref={localVideoRef} autoPlay muted playsInline style={{ width: '100%', maxHeight: '45vh', objectFit: 'cover', borderRadius: 10, background: '#000' }} />
-              </>
-            ) : hostIsLive ? (
-              <>
-                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>Someone is live</div>
-                <video ref={remoteVideoRef} autoPlay playsInline style={{ width: '100%', maxHeight: '45vh', objectFit: 'cover', borderRadius: 10, background: '#000' }} />
+                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>
+                  {isStreaming ? 'You are live and everyone in the room can watch' : 'Live participants in this room'}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+                  {isStreaming && (
+                    <div style={{ background: 'rgba(2,6,23,.9)', border: '1px solid rgba(239,68,68,.22)', borderRadius: 12, overflow: 'hidden' }}>
+                      <div style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, color: '#fecaca', borderBottom: '1px solid rgba(239,68,68,.12)' }}>You</div>
+                      <video ref={localVideoRef} autoPlay muted playsInline style={{ width: '100%', height: 220, objectFit: 'cover', background: '#000' }} />
+                    </div>
+                  )}
+                  {remoteStreams.map((remoteStream) => {
+                    const participant = room.participants?.find((item: any) => String(item?._id) === remoteStream.streamerUserId);
+                    const label = participant?.name || participant?.username || 'Participant';
+                    return remoteStream.stream ? (
+                      <RemoteVideoCard key={remoteStream.streamerSocketId} label={label} stream={remoteStream.stream} />
+                    ) : (
+                      <div key={remoteStream.streamerSocketId} style={{ background: 'rgba(2,6,23,.9)', border: '1px solid rgba(96,165,250,.18)', borderRadius: 12, overflow: 'hidden', minHeight: 264, display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, color: '#cbd5e1', borderBottom: '1px solid rgba(96,165,250,.12)' }}>{label}</div>
+                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: 13 }}>Connecting camera…</div>
+                      </div>
+                    );
+                  })}
+                </div>
               </>
             ) : (
               <div style={{ color: '#475569', fontSize: 13, textAlign: 'center', padding: '20px 0' }}>

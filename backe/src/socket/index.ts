@@ -16,7 +16,7 @@ type NightRoomStreamState = {
   streamerUserId: string;
 };
 
-const nightRoomStreams = new Map<string, NightRoomStreamState>();
+const nightRoomStreams = new Map<string, Map<string, NightRoomStreamState>>();
 
 export function getTokenFromHandshake(handshake: {
   headers?: Record<string, unknown>;
@@ -151,7 +151,9 @@ export function initSocket(server: HttpServer) {
 
         const existing = nightRoomStreams.get(roomId);
         if (existing) {
-          socket.emit('nightroom:stream:announce', existing);
+          for (const stream of existing.values()) {
+            socket.emit('nightroom:stream:announce', stream);
+          }
         }
       } catch (err) {
         console.error('nightroom:join failed', err);
@@ -189,7 +191,9 @@ export function initSocket(server: HttpServer) {
           streamerSocketId: socket.id,
           streamerUserId: String(userId),
         };
-        nightRoomStreams.set(roomId, state);
+        const roomStreams = nightRoomStreams.get(roomId) || new Map<string, NightRoomStreamState>();
+        roomStreams.set(socket.id, state);
+        nightRoomStreams.set(roomId, roomStreams);
         io.to(`nightroom:${roomId}`).emit('nightroom:stream:announce', state);
       } catch (err) {
         console.error('nightroom:stream:start failed', err);
@@ -200,11 +204,12 @@ export function initSocket(server: HttpServer) {
       try {
         const roomId = String(payload?.roomId || '');
         if (!roomId) return;
-        const existing = nightRoomStreams.get(roomId);
-        if (!existing) return;
-        if (existing.streamerSocketId !== socket.id) return;
-
-        nightRoomStreams.delete(roomId);
+        const roomStreams = nightRoomStreams.get(roomId);
+        if (!roomStreams?.has(socket.id)) return;
+        roomStreams.delete(socket.id);
+        if (roomStreams.size === 0) {
+          nightRoomStreams.delete(roomId);
+        }
         io.to(`nightroom:${roomId}`).emit('nightroom:stream:stop', { roomId, streamerSocketId: socket.id });
       } catch (err) {
         console.error('nightroom:stream:stop failed', err);
@@ -218,9 +223,8 @@ export function initSocket(server: HttpServer) {
         if (!roomId || !streamerSocketId) return;
         if (!(socket.data as any).nightRooms?.has?.(roomId)) return;
 
-        const existing = nightRoomStreams.get(roomId);
+        const existing = nightRoomStreams.get(roomId)?.get(streamerSocketId);
         if (!existing) return;
-        if (existing.streamerSocketId !== streamerSocketId) return;
 
         io.to(existing.streamerSocketId).emit('nightroom:stream:viewer-ready', {
           roomId,
@@ -240,9 +244,8 @@ export function initSocket(server: HttpServer) {
         if (!roomId || !targetSocketId || !sdp) return;
         if (!(socket.data as any).nightRooms?.has?.(roomId)) return;
 
-        const existing = nightRoomStreams.get(roomId);
+        const existing = nightRoomStreams.get(roomId)?.get(socket.id);
         if (!existing) return;
-        if (existing.streamerSocketId !== socket.id) return;
 
         io.to(targetSocketId).emit('nightroom:stream:offer', {
           roomId,
@@ -553,9 +556,11 @@ export function initSocket(server: HttpServer) {
       io.emit('presence:update', { userId, isOnline: false });
 
       // If this socket was streaming in any night room, stop it.
-      for (const [roomId, state] of nightRoomStreams.entries()) {
-        if (state.streamerSocketId === socket.id) {
-          nightRoomStreams.delete(roomId);
+      for (const [roomId, roomStreams] of nightRoomStreams.entries()) {
+        if (roomStreams.delete(socket.id)) {
+          if (roomStreams.size === 0) {
+            nightRoomStreams.delete(roomId);
+          }
           io.to(`nightroom:${roomId}`).emit('nightroom:stream:stop', { roomId, streamerSocketId: socket.id });
         }
       }
