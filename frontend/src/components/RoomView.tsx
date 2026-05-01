@@ -38,7 +38,7 @@ const RemoteVideoCard: React.FC<{ label: string; stream: MediaStream | null }> =
     const el = videoRef.current;
     if (!el) return;
     el.srcObject = stream;
-    el.muted = true;
+    el.muted = false;
     if (stream) {
       el.play?.().catch(() => {});
     }
@@ -50,7 +50,7 @@ const RemoteVideoCard: React.FC<{ label: string; stream: MediaStream | null }> =
   return (
     <div style={{ background: 'rgba(2,6,23,.9)', border: '1px solid rgba(96,165,250,.18)', borderRadius: 12, overflow: 'hidden' }}>
       <div style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, color: '#cbd5e1', borderBottom: '1px solid rgba(96,165,250,.12)' }}>{label}</div>
-      <video ref={videoRef} autoPlay muted playsInline style={{ width: '100%', height: 220, objectFit: 'cover', background: '#000' }} />
+      <video ref={videoRef} autoPlay playsInline style={{ width: '100%', height: 220, objectFit: 'cover', background: '#000' }} />
     </div>
   );
 };
@@ -657,7 +657,7 @@ const RoomView: React.FC<RoomViewProps> = ({ roomId, onClose, currentUserId }) =
             {(isStreaming || remoteStreams.length > 0) ? (
               <>
                 <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>
-                  {isStreaming ? 'You are live and everyone in the room can watch' : 'Live participants in this room'}
+                  {isStreaming ? 'You are live and everyone in the room can watch and hear you' : 'Live participants in this room'}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
                   {isStreaming && (
